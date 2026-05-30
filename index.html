@@ -22,8 +22,8 @@
   <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
 const {
-  LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip,
-  AreaChart, Area, PieChart, Pie, Cell,
+  AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip,
+  PieChart, Pie, Cell,
 } = Recharts;
 
 // ============================================================
@@ -33,7 +33,7 @@ const DEFAULT_WORKER_URL = 'https://portfolio.y68xps2sdk.workers.dev';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
 // ============================================================
-// ICONS
+// ICONS (vollständig)
 // ============================================================
 const Icon = ({ children, size = 16, className = '', ...rest }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
@@ -73,10 +73,10 @@ const SEED_DATA = {
   },
   vorsorge: { ahv: { label: 'AHV', monthly: 1800 }, pkzh: { label: 'Pensionskasse Zürich', monthly: 3250 }, aerzte: { label: 'Ärzteversorgung DE', monthly: 1500 } },
   sellLevels: {
-    btc: [{ trigger: 100000, action: '0.02 BTC verkaufen', status: 'pending' }, { trigger: 150000, action: '0.02 BTC verkaufen', status: 'pending' }, { trigger: 200000, action: '0.02 BTC verkaufen', status: 'pending' }, { trigger: 300000, action: '0.02 BTC verkaufen', status: 'pending' }],
-    sol: [{ trigger: 300, action: '20 SOL → V3AA', status: 'pending' }, { trigger: 600, action: '16 SOL → V3AA', status: 'pending' }, { trigger: 1000, action: '13 SOL → V3AA', status: 'pending' }],
-    kas: [{ trigger: 0.10, action: '5.882 KAS → V3AA', status: 'pending' }, { trigger: 0.20, action: '7.059 KAS → V3AA', status: 'pending' }, { trigger: 0.50, action: '2.647 KAS → V3AA', status: 'pending' }],
-    rndr: [{ trigger: 5, action: '25% → V3AA', status: 'pending' }, { trigger: 10, action: '25% → V3AA', status: 'pending' }, { trigger: 20, action: '25% → V3AA', status: 'pending' }, { trigger: 50, action: '25% → V3AA', status: 'pending' }],
+    btc: [{ trigger: 100000, action: '0.02 BTC verkaufen' }, { trigger: 150000, action: '0.02 BTC verkaufen' }, { trigger: 200000, action: '0.02 BTC verkaufen' }, { trigger: 300000, action: '0.02 BTC verkaufen' }],
+    sol: [{ trigger: 300, action: '20 SOL → V3AA' }, { trigger: 600, action: '16 SOL → V3AA' }, { trigger: 1000, action: '13 SOL → V3AA' }],
+    kas: [{ trigger: 0.10, action: '5.882 KAS → V3AA' }, { trigger: 0.20, action: '7.059 KAS → V3AA' }, { trigger: 0.50, action: '2.647 KAS → V3AA' }],
+    rndr: [{ trigger: 5, action: '25% → V3AA' }, { trigger: 10, action: '25% → V3AA' }, { trigger: 20, action: '25% → V3AA' }, { trigger: 50, action: '25% → V3AA' }],
   },
   todos: [
     { id: 1, text: 'KAS Verkaufsorders auf Kraken einrichten (3 Stufen)', priority: 'high', done: false },
@@ -102,7 +102,7 @@ const SEED_DATA = {
 };
 
 // ============================================================
-// STORAGE (für workerUrl & modelName)
+// STORAGE
 // ============================================================
 const STORAGE_KEY = 'portfolio-dashboard-v1';
 const WORKER_URL_STORAGE = 'claude-worker-url';
@@ -116,31 +116,32 @@ const loadModelName = () => { try { return localStorage.getItem(MODEL_NAME_STORA
 const saveModelName = (model) => { try { localStorage.setItem(MODEL_NAME_STORAGE, model); } catch (e) { console.error(e); } };
 
 // ============================================================
+// UNIVERSALER PROMPT (erkennt alles automatisch)
+// ============================================================
+const UNIVERSAL_PROMPT = `Du bist ein professioneller Datenextraktor für Finanz- und Depotauszüge.
+Der Benutzer lädt einen Screenshot oder kopierten Text einer beliebigen Quelle hoch.
+Erkenne automatisch, um welche Art von Auszug es sich handelt (Swissquote, Kraken, Relai, VIAC 3a, deutsches ETF-Depot, Vorsorgebescheinigung PKZH/AHV/Ärzteversorgung).
+
+Extrahiere alle erkennbaren Positionen im folgenden JSON-Format:
+{"positions": [{"asset": "BTC", "menge": 0.123, "einstand": 45000, "kurs": 50000, "wertCHF": 6150, "plPct": 11.11}]}
+
+Regeln:
+- 'asset' ist der Ticker (BTC, ETH, SOL, KAS, RNDR, V3AA, VIAC, ETF-DE, CASH, etc.)
+- 'menge' ist die Anzahl Einheiten (Zahl)
+- 'einstand' ist der durchschnittliche Kaufpreis pro Einheit (Zahl, Währung egal)
+- 'kurs' ist der aktuelle Preis pro Einheit (Zahl)
+- 'wertCHF' ist der Gesamtwert in CHF (Zahl)
+- 'plPct' ist die prozentuale Performance (Zahl, negativ bei Verlust)
+- Für Vorsorgeauszüge (PKZH, AHV, Ärzteversorgung) extrahiere stattdessen: {"positions": [{"asset": "PKZH", "monthly": 3250}]}
+- Für VIAC 3a: wertCHF und plPct
+- Für reine ETF-Depots (DE): Werte in EUR, Umrechnung nach CHF mit Faktor 1.077
+- Wenn ein Wert nicht erkennbar ist, gib 0 zurück.
+
+WICHTIG: Antworte ausschließlich mit reinem JSON, keine Erklärungen, kein Markdown, keine Code-Fences. Beginne direkt mit { und ende mit }.`;
+
+// ============================================================
 // CLAUDE API via Worker Proxy
 // ============================================================
-const JSON_RULES = `WICHTIG: Antworte AUSSCHLIESSLICH mit reinem JSON. Kein Markdown, keine Code-Fences, kein Erklärungstext. Beginne direkt mit { und ende mit }. Wenn ein Wert nicht erkennbar ist, gib 0 zurück.`;
-
-const PROMPTS_BY_SOURCE = {
-  swissquote: `Du bist ein Datenextraktor. Du bekommst einen Screenshot ODER den kopierten Text eines Swissquote-Banking-Auszugs.
-Extrahiere ALLE erkennbaren Positionen. Pro Position: asset, menge, einstand, kurs, wertCHF, plPct (Zahlen).
-Format: {"positions": [{"asset": "SOL", "menge": 15.55, "einstand": 82.89, "kurs": 83.96, "wertCHF": 1215, "plPct": 1.37}]}`,
-  kraken: `Du bist ein Datenextraktor. Extrahiere Kryptopositionen aus Kraken: asset, menge, einstand, kurs, wertCHF, plPct. Format: {"positions": [...]}`,
-  relai: `Du bist ein Datenextraktor. Extrahiere BTC-Position aus Relai: menge, einstand, kurs, wertCHF, plPct. Format: {"positions": [{"asset":"BTC", ...}]}`,
-  viac: `Extrahiere VIAC 3a: wertCHF, plPct. Format: {"positions": [{"asset":"VIAC","wertCHF":52910,"plPct":40.66}]}`,
-  etfDE: `Extrahiere ETF-Positionen (EUR->CHF *1.077). Format: {"positions": [{"asset":"ETF-DE","wertCHF":107000,"plPct":27}]}`,
-  pkzh: `Extrahiere monatliche Rente aus Vorsorgeauszug. Format: {"positions": [{"asset":"PKZH","monthly":3250}]}`,
-};
-
-const buildSystemPrompt = (sourcePrompt) => `${sourcePrompt}\n\n${JSON_RULES}`;
-
-const parseJsonResponse = (content) => {
-  const cleaned = (content || '').replace(/```json/gi, '').replace(/```/g, '').trim();
-  try { return JSON.parse(cleaned); } catch {}
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (jsonMatch) try { return JSON.parse(jsonMatch[0]); } catch(e) { throw new Error(`JSON parse error: ${e.message}`); }
-  throw new Error(`Kein JSON in Antwort: ${cleaned.slice(0, 300)}`);
-};
-
 const compressImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
@@ -159,7 +160,7 @@ const compressImage = (file) => new Promise((resolve, reject) => {
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg', width, height });
+      resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
     };
     img.onerror = reject;
     img.src = reader.result;
@@ -186,20 +187,19 @@ const callClaudeProxy = async (workerUrl, modelName, systemPrompt, userContentPa
   try { data = JSON.parse(raw); } catch(e) { throw new Error(`Proxy antwortete kein JSON: ${raw.slice(0,300)}`); }
   const textBlock = data.content?.find(block => block.type === 'text');
   if (!textBlock?.text) throw new Error('Keine Textantwort vom Proxy');
-  return parseJsonResponse(textBlock.text);
+  const cleaned = textBlock.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try { return JSON.parse(cleaned); } catch(e) { throw new Error(`JSON-Parse-Fehler: ${cleaned.slice(0,300)}`); }
 };
 
-const callClaudeVisionViaProxy = async (workerUrl, modelName, { base64, mimeType }, source) => {
-  const systemPrompt = buildSystemPrompt(PROMPTS_BY_SOURCE[source] || PROMPTS_BY_SOURCE.swissquote);
-  return callClaudeProxy(workerUrl, modelName, systemPrompt, [
+const callClaudeVisionViaProxy = async (workerUrl, modelName, { base64, mimeType }) => {
+  return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [
     { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
     { type: 'text', text: 'Extrahiere alle Positionen aus diesem Screenshot gemäss Systemanweisung. Gib nur JSON zurück.' }
   ]);
 };
 
-const callClaudeTextViaProxy = async (workerUrl, modelName, source, rawText) => {
-  const systemPrompt = buildSystemPrompt(PROMPTS_BY_SOURCE[source] || PROMPTS_BY_SOURCE.swissquote);
-  return callClaudeProxy(workerUrl, modelName, systemPrompt, [{ type: 'text', text: `--- DATEN ---\n${rawText}\n\nExtrahiere Positionen. Gib nur JSON.` }]);
+const callClaudeTextViaProxy = async (workerUrl, modelName, rawText) => {
+  return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [{ type: 'text', text: `--- DATEN ---\n${rawText}\n\nExtrahiere Positionen. Gib nur JSON.` }]);
 };
 
 // ============================================================
@@ -215,8 +215,44 @@ const calcAllocation = (positions) => {
   return cats;
 };
 
+// Merge-Funktion für Batch
+const mergeMultiplePositionLists = (allPositionsArrays) => {
+  const mergedMap = new Map();
+  for (const positionArray of allPositionsArrays) {
+    for (const pos of positionArray) {
+      const asset = pos.asset;
+      if (!asset) continue;
+      if (!mergedMap.has(asset)) {
+        mergedMap.set(asset, {
+          asset: asset,
+          menge: pos.menge || 0,
+          wertCHF: pos.wertCHF || 0,
+          einstand: pos.einstand || 0,
+          plPct: pos.plPct || 0,
+          kurs: pos.kurs || 0,
+        });
+      } else {
+        const existing = mergedMap.get(asset);
+        const newMenge = existing.menge + (pos.menge || 0);
+        const newWert = existing.wertCHF + (pos.wertCHF || 0);
+        const newEinstand = newMenge > 0 ? newWert / newMenge : 0;
+        const newKurs = newMenge > 0 ? (existing.kurs * existing.menge + (pos.kurs || 0) * (pos.menge || 0)) / newMenge : 0;
+        mergedMap.set(asset, {
+          asset: asset,
+          menge: newMenge,
+          wertCHF: newWert,
+          einstand: newEinstand,
+          kurs: newKurs,
+          plPct: 0,
+        });
+      }
+    }
+  }
+  return Array.from(mergedMap.values());
+};
+
 // ============================================================
-// UI COMPONENTS
+// UI KOMPONENTEN (Logo, StatCard, ConvictionBar)
 // ============================================================
 const Logo = () => (
   <div className="flex items-center gap-2">
@@ -237,63 +273,297 @@ const ConvictionBar = ({ value }) => {
 };
 
 // ============================================================
-// UPLOAD MODAL
+// UPLOAD MODAL (NUR Screenshot/Batch oder Manuell)
 // ============================================================
-const UploadModal = ({ open, onClose, onSave, workerUrl, modelName }) => {
-  const [step, setStep] = useState('source'); const [source, setSource] = useState(null); const [pasteText, setPasteText] = useState('');
-  const [editedData, setEditedData] = useState(null); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const [diagnosis, setDiagnosis] = useState('');
-  const fileInputRef = useRef(null);
-  useEffect(() => { if (!open) { setStep('source'); setSource(null); setPasteText(''); setEditedData(null); setError(null); setDiagnosis(''); } }, [open]);
-  const sources = [{ id: 'swissquote', label: 'Swissquote', desc: 'BTC, ETH, SOL, V3AA' }, { id: 'kraken', label: 'Kraken', desc: 'KAS, RNDR' }, { id: 'relai', label: 'Relai', desc: 'BTC DCA' }, { id: 'viac', label: 'VIAC 3a', desc: 'Säule 3a' }, { id: 'etfDE', label: 'Depot DE', desc: 'Deutsche ETFs' }, { id: 'pkzh', label: 'Vorsorge', desc: 'PKZH, AHV, Ärzteversorgung' }, { id: 'manual', label: 'Manuell', desc: 'Ohne Screenshot' }];
-  const handleFileSelect = async (e) => { const f = e.target.files?.[0]; if (!f) return; setStep('extract'); await runExtraction(f); };
-  const runExtraction = async (f) => { setLoading(true); setError(null); setDiagnosis(''); try { if (!workerUrl) throw new Error('Keine Worker-URL gesetzt.'); setDiagnosis(`Komprimiere ${f.name}...`); const img = await compressImage(f); setDiagnosis(`Sende Bild an Proxy (Modell: ${modelName})...`); const result = await callClaudeVisionViaProxy(workerUrl, modelName, img, source); applyResult(result); } catch (e) { setError(`${diagnosis ? '['+diagnosis+']\n\n' : ''}${e.message}`); } finally { setLoading(false); } };
-  const runPasteExtraction = async () => { setStep('extract'); setLoading(true); setError(null); setDiagnosis(''); try { if (!workerUrl) throw new Error('Keine Worker-URL gesetzt.'); if (!pasteText.trim()) throw new Error('Kein Text eingegeben.'); setDiagnosis(`Sende Text an Proxy (Modell: ${modelName})...`); const result = await callClaudeTextViaProxy(workerUrl, modelName, source, pasteText); applyResult(result); } catch (e) { setError(e.message); } finally { setLoading(false); } };
-  const applyResult = (result) => { const positions = Array.isArray(result?.positions) ? result.positions : []; if (positions.length === 0) throw new Error('Keine Positionen erkannt.'); setEditedData(JSON.parse(JSON.stringify({ positions }))); setStep('review'); };
-  const handleManualEntry = () => { setEditedData({ positions: [{ asset: '', menge: 0, einstand: 0, kurs: 0, wertCHF: 0, plPct: 0 }] }); setStep('review'); };
-  const updateField = (idx, key, value) => { const copy = { ...editedData }; copy.positions[idx][key] = key === 'asset' ? value : parseFloat(value) || 0; setEditedData(copy); };
-  const handleSave = () => { onSave(editedData.positions, source); onClose(); };
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-zinc-800 p-4"><div className="font-mono text-sm text-emerald-400">// {step.toUpperCase()}</div><button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button></div>
-        <div className="p-6">
-          {step === 'source' && (<div><h2 className="text-lg font-mono text-zinc-100 mb-1">Quelle wählen</h2><p className="text-xs text-zinc-500 mb-4 font-mono">→ Woher kommen die Daten?</p><div className="grid grid-cols-2 gap-2">{sources.map(s => (<button key={s.id} onClick={() => { setSource(s.id); if (s.id === 'manual') handleManualEntry(); else setStep('upload'); }} className="text-left border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-3 transition group"><div className="font-mono text-sm text-zinc-100 group-hover:text-emerald-400">{s.label}</div><div className="text-xs text-zinc-500 mt-0.5">{s.desc}</div></button>))}</div></div>)}
-          {step === 'upload' && (<div><h2 className="text-lg font-mono text-zinc-100 mb-1">Screenshot hochladen</h2><p className="text-xs text-zinc-500 mb-4 font-mono">→ {sources.find(s => s.id === source)?.label}</p><div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/30 p-12 text-center cursor-pointer transition"><Upload className="mx-auto text-zinc-600 mb-3" size={32} /><div className="text-sm text-zinc-300 font-mono">Bild auswählen</div><div className="text-xs text-zinc-500 mt-1">PNG, JPG – wird an den Claude-Proxy gesendet</div></div><input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" /><div className="mt-4 flex items-center justify-between"><button onClick={() => setStep('source')} className="text-xs text-zinc-500 hover:text-zinc-300 font-mono">← Zurück</button><button onClick={() => setStep('paste')} className="text-xs text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-1"><FileText size={12} /> Stattdessen Text einfügen →</button></div></div>)}
-          {step === 'paste' && (<div><h2 className="text-lg font-mono text-zinc-100 mb-1">Text einfügen</h2><p className="text-xs text-zinc-500 mb-4 font-mono">→ {sources.find(s => s.id === source)?.label} · kopierter Text</p><textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={10} placeholder="Hier den kopierten Text einfügen..." className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none resize-y" /><div className="mt-4 flex items-center justify-between"><button onClick={() => setStep('upload')} className="text-xs text-zinc-500 hover:text-zinc-300 font-mono">← Zurück</button><button onClick={runPasteExtraction} className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-4 py-2 transition">AN PROXY SENDEN →</button></div></div>)}
-          {step === 'extract' && (<div className="text-center py-12">{loading && (<><Loader2 className="mx-auto text-emerald-400 animate-spin mb-4" size={32} /><div className="font-mono text-sm text-zinc-300">Verarbeite...</div><div className="text-xs text-zinc-500 mt-2">Claude analysiert, kann etwas dauern</div>{diagnosis && <div className="text-[10px] text-zinc-600 mt-3 font-mono whitespace-pre-wrap">{diagnosis}</div>}</>)}{error && (<><AlertCircle className="mx-auto text-red-400 mb-4" size={32} /><div className="font-mono text-sm text-red-400 mb-3">Fehler bei Extraktion</div><div className="text-xs text-zinc-300 font-mono bg-zinc-900 border border-zinc-800 p-3 text-left max-h-48 overflow-auto whitespace-pre-wrap break-words">{error}</div><div className="mt-4 flex flex-col gap-2 items-center"><button onClick={() => { setError(null); handleManualEntry(); }} className="text-xs text-emerald-400 hover:text-emerald-300 font-mono">→ Manuell eintragen stattdessen</button><button onClick={() => navigator.clipboard?.writeText(error)} className="text-xs text-zinc-500 hover:text-zinc-300 font-mono">Fehler kopieren</button></div></>)}</div>)}
-          {step === 'review' && editedData && (<div><h2 className="text-lg font-mono text-zinc-100 mb-1">Werte prüfen & bestätigen</h2><p className="text-xs text-zinc-500 mb-4 font-mono">→ Editierbar, dann speichern</p><div className="space-y-3 mb-6">{editedData.positions.map((pos, idx) => (<div key={idx} className="border border-zinc-800 bg-zinc-900/50 p-3"><div className="grid grid-cols-2 gap-2"><Field label="Asset (Ticker)" value={pos.asset} onChange={(v) => updateField(idx, 'asset', v)} type="text" /><Field label="Menge" value={pos.menge} onChange={(v) => updateField(idx, 'menge', v)} /><Field label="Einstandspreis" value={pos.einstand} onChange={(v) => updateField(idx, 'einstand', v)} /><Field label="Aktueller Kurs" value={pos.kurs} onChange={(v) => updateField(idx, 'kurs', v)} /><Field label="Wert CHF" value={pos.wertCHF} onChange={(v) => updateField(idx, 'wertCHF', v)} /><Field label="P/L %" value={pos.plPct} onChange={(v) => updateField(idx, 'plPct', v)} /></div></div>))}</div><div className="flex gap-2"><button onClick={handleSave} className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-sm py-2 transition"><Check size={14} className="inline mr-1" /> WERTE ÜBERNEHMEN</button><button onClick={onClose} className="px-4 border border-zinc-800 hover:border-zinc-700 text-zinc-400 font-mono text-sm py-2">VERWERFEN</button></div></div>)}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const Field = ({ label, value, onChange, type = 'number' }) => (
   <div><div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono mb-1">{label}</div><input type={type} step="any" value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none" /></div>
 );
 
+const UploadModal = ({ open, onClose, onSave, workerUrl, modelName }) => {
+  const [mode, setMode] = useState(null);
+  const [pasteText, setPasteText] = useState('');
+  const [editedData, setEditedData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [diagnosis, setDiagnosis] = useState('');
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentFile: '' });
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setMode(null);
+      setPasteText('');
+      setEditedData(null);
+      setError(null);
+      setDiagnosis('');
+      setBatchMode(false);
+      setBatchProgress({ current: 0, total: 0, currentFile: '' });
+    }
+  }, [open]);
+
+  const extractSingleFile = async (file) => {
+    setDiagnosis(`Komprimiere ${file.name}...`);
+    const img = await compressImage(file);
+    setDiagnosis(`Sende ${file.name} an Claude...`);
+    const result = await callClaudeVisionViaProxy(workerUrl, modelName, img);
+    const positions = Array.isArray(result?.positions) ? result.positions : [];
+    if (positions.length === 0) throw new Error(`Keine Positionen in ${file.name} erkannt.`);
+    return positions;
+  };
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    if (!batchMode && files.length > 1) {
+      const useBatch = confirm('Mehrere Dateien ausgewählt. Batch-Modus (zusammenführen) verwenden?');
+      if (!useBatch) {
+        await runSingleExtraction(files[0]);
+        return;
+      } else {
+        setBatchMode(true);
+      }
+    }
+    if (batchMode || files.length > 1) {
+      await runBatchExtraction(files);
+    } else {
+      await runSingleExtraction(files[0]);
+    }
+  };
+
+  const runSingleExtraction = async (file) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const positions = await extractSingleFile(file);
+      setEditedData({ positions });
+      setMode('review');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runBatchExtraction = async (files) => {
+    setLoading(true);
+    setError(null);
+    const allPositionsArrays = [];
+    const errors = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setBatchProgress({ current: i+1, total: files.length, currentFile: file.name });
+      try {
+        const positions = await extractSingleFile(file);
+        allPositionsArrays.push(positions);
+      } catch (err) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+    if (allPositionsArrays.length === 0) {
+      setError('Keine Datei konnte extrahiert werden.');
+      setLoading(false);
+      return;
+    }
+    const merged = mergeMultiplePositionLists(allPositionsArrays);
+    if (errors.length) alert('Fehler bei:\n' + errors.join('\n'));
+    setEditedData({ positions: merged });
+    setMode('review');
+    setLoading(false);
+  };
+
+  const runPasteExtraction = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (!pasteText.trim()) throw new Error('Kein Text eingegeben.');
+      const result = await callClaudeTextViaProxy(workerUrl, modelName, pasteText);
+      const positions = Array.isArray(result?.positions) ? result.positions : [];
+      if (positions.length === 0) throw new Error('Keine Positionen erkannt.');
+      setEditedData({ positions });
+      setMode('review');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualEntry = () => {
+    setEditedData({ positions: [{ asset: '', menge: 0, einstand: 0, kurs: 0, wertCHF: 0, plPct: 0 }] });
+    setMode('review');
+  };
+
+  const updateField = (idx, key, value) => {
+    const copy = { ...editedData };
+    copy.positions[idx][key] = key === 'asset' ? value : parseFloat(value) || 0;
+    setEditedData(copy);
+  };
+
+  const handleSave = () => {
+    onSave(editedData.positions);
+    onClose();
+  };
+
+  if (!open) return null;
+
+  // Modus-Auswahl
+  if (mode === null) {
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full">
+          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+            <div className="font-mono text-sm text-emerald-400">// UPDATE</div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+          </div>
+          <div className="p-6">
+            <h2 className="text-lg font-mono text-zinc-100 mb-4">Daten hinzufügen</h2>
+            <div className="space-y-3">
+              <button onClick={() => setMode('screenshot')} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
+                <div className="font-mono text-sm text-emerald-400">📸 Screenshot(s) hochladen</div>
+                <div className="text-xs text-zinc-500 mt-1">Einzelnes Bild oder mehrere (Batch) – automatische Erkennung</div>
+              </button>
+              <button onClick={handleManualEntry} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
+                <div className="font-mono text-sm text-emerald-400">✏️ Manuell eintragen</div>
+                <div className="text-xs text-zinc-500 mt-1">Positionen selbst eingeben (ohne KI)</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'screenshot') {
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+            <div className="font-mono text-sm text-emerald-400">// SCREENSHOT UPLOAD</div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+          </div>
+          <div className="p-6">
+            <label className="flex items-center gap-2 mb-4 cursor-pointer">
+              <input type="checkbox" checked={batchMode} onChange={(e) => setBatchMode(e.target.checked)} className="w-4 h-4" />
+              <span className="text-xs font-mono text-zinc-300">Batch-Modus (mehrere Screenshots zusammenführen)</span>
+            </label>
+            <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/30 p-12 text-center cursor-pointer transition">
+              <Upload className="mx-auto text-zinc-600 mb-3" size={32} />
+              <div className="text-sm text-zinc-300 font-mono">{batchMode ? 'Mehrere Bilder auswählen' : 'Bild auswählen'}</div>
+              <div className="text-xs text-zinc-500 mt-1">{batchMode ? 'Mehrere Dateien möglich, werden zusammengeführt' : 'PNG, JPG'}</div>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple={batchMode} onChange={handleFileSelect} className="hidden" />
+            <div className="mt-4 flex justify-between">
+              <button onClick={() => setMode(null)} className="text-xs text-zinc-500 hover:text-zinc-300">← Zurück</button>
+              <button onClick={() => setMode('manual')} className="text-xs text-emerald-400">Manuell →</button>
+            </div>
+            {loading && (
+              <div className="mt-6 text-center">
+                <Loader2 className="mx-auto text-emerald-400 animate-spin mb-2" size={24} />
+                <div className="text-xs text-zinc-500">{diagnosis}</div>
+                {batchProgress.total > 0 && <div className="text-xs text-zinc-600 mt-1">Datei {batchProgress.current} / {batchProgress.total}</div>}
+              </div>
+            )}
+            {error && <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 text-xs text-red-400">{error}<button onClick={() => setMode('manual')} className="block mt-2 text-emerald-400">→ Manuell eintragen</button></div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'review' && editedData) {
+    return (
+      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+            <div className="font-mono text-sm text-emerald-400">// WERTE PRÜFEN</div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+          </div>
+          <div className="p-6">
+            <h2 className="text-lg font-mono text-zinc-100 mb-1">Positionen prüfen</h2>
+            <p className="text-xs text-zinc-500 mb-4 font-mono">→ Editierbar, dann speichern</p>
+            <div className="space-y-3 mb-6">
+              {editedData.positions.map((pos, idx) => (
+                <div key={idx} className="border border-zinc-800 bg-zinc-900/50 p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Asset" value={pos.asset} onChange={(v) => updateField(idx, 'asset', v)} type="text" />
+                    <Field label="Menge" value={pos.menge} onChange={(v) => updateField(idx, 'menge', v)} />
+                    <Field label="Einstand" value={pos.einstand} onChange={(v) => updateField(idx, 'einstand', v)} />
+                    <Field label="Kurs" value={pos.kurs} onChange={(v) => updateField(idx, 'kurs', v)} />
+                    <Field label="Wert CHF" value={pos.wertCHF} onChange={(v) => updateField(idx, 'wertCHF', v)} />
+                    <Field label="P/L %" value={pos.plPct} onChange={(v) => updateField(idx, 'plPct', v)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleSave} className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-sm py-2"><Check size={14} className="inline mr-1" /> ÜBERNEHMEN</button>
+              <button onClick={onClose} className="px-4 border border-zinc-800 hover:border-zinc-700 text-zinc-400 font-mono text-sm py-2">VERWERFEN</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 // ============================================================
-// TABS & DASHBOARD (unverändert)
+// TABS (Overview, Crypto, Vorsorge, ETFs, Plan)
 // ============================================================
 const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorgeTotal, targetProgress }) => {
   const trendData = data.history.total.map(h => ({ date: h.date.slice(5), value: h.wertCHF }));
-  const allocPie = [{ name: 'Krypto', value: alloc.crypto, color: '#10b981' }, { name: 'ETFs', value: alloc.etf, color: '#06b6d4' }, { name: 'Cash', value: alloc.cash, color: '#71717a' }];
+  const allocPie = [
+    { name: 'Krypto', value: alloc.crypto, color: '#10b981' },
+    { name: 'ETFs', value: alloc.etf, color: '#06b6d4' },
+    { name: 'Cash', value: alloc.cash, color: '#71717a' }
+  ];
   return (
     <div className="space-y-6">
       <div className="border border-zinc-800 bg-gradient-to-br from-zinc-950 to-zinc-900/50 p-6">
         <div className="flex items-end justify-between flex-wrap gap-4">
-          <div><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-2">// GESAMTVERMÖGEN</div><div className="text-5xl md:text-6xl font-mono text-zinc-100 leading-none">{fmt(total)} <span className="text-2xl text-zinc-500">CHF</span></div><div className={`mt-3 flex items-center gap-2 font-mono text-sm ${totalChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{totalChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}{totalChange >= 0 ? '+' : ''}{fmt(totalChange)} CHF <span className="text-zinc-500">({fmtPct(totalChangePct)} seit letztem Update)</span></div></div>
-          <div className="text-right"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-1">RENTENZIEL</div><div className="font-mono text-2xl text-emerald-400">{Math.round(targetProgress)}%</div><div className="text-xs text-zinc-500 font-mono">{fmt(vorsorgeTotal)} / {fmt(data.meta.targetMonthlyRetirement)} CHF/Mo</div></div>
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-2">// GESAMTVERMÖGEN</div>
+            <div className="text-5xl md:text-6xl font-mono text-zinc-100 leading-none">{fmt(total)} <span className="text-2xl text-zinc-500">CHF</span></div>
+            <div className={`mt-3 flex items-center gap-2 font-mono text-sm ${totalChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {totalChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+              {totalChange >= 0 ? '+' : ''}{fmt(totalChange)} CHF <span className="text-zinc-500">({fmtPct(totalChangePct)} seit letztem Update)</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-1">RENTENZIEL</div>
+            <div className="font-mono text-2xl text-emerald-400">{Math.round(targetProgress)}%</div>
+            <div className="text-xs text-zinc-500 font-mono">{fmt(vorsorgeTotal)} / {fmt(data.meta.targetMonthlyRetirement)} CHF/Mo</div>
+          </div>
         </div>
-        <div className="mt-6 h-32">{trendData.length > 1 ? (<ResponsiveContainer width="100%" height="100%"><AreaChart data={trendData}><defs><linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs><XAxis dataKey="date" stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} /><YAxis stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} /><Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontFamily: 'monospace', fontSize: 11 }} formatter={(v) => fmtChf(v)} /><Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" /></AreaChart></ResponsiveContainer>) : (<div className="h-full flex items-center justify-center text-xs text-zinc-600 font-mono">→ Trend-Chart erscheint nach 2+ Updates</div>)}</div>
+        <div className="mt-6 h-32">
+          {trendData.length > 1 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData}>
+                <defs><linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
+                <XAxis dataKey="date" stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} />
+                <YAxis stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontFamily: 'monospace', fontSize: 11 }} formatter={(v) => fmtChf(v)} />
+                <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-xs text-zinc-600 font-mono">→ Trend-Chart nach 2+ Updates</div>}
+        </div>
       </div>
       <div className="grid md:grid-cols-3 gap-4">
-        <div className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">ALLOKATION</div><div className="h-40"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={allocPie} dataKey="value" innerRadius={35} outerRadius={60} paddingAngle={2}>{allocPie.map((entry, i) => (<Cell key={i} fill={entry.color} stroke="#09090b" />))}</Pie><Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontFamily: 'monospace', fontSize: 11 }} formatter={(v) => fmtChf(v)} /></PieChart></ResponsiveContainer></div><div className="space-y-1 mt-2">{allocPie.map(a => (<div key={a.name} className="flex items-center justify-between text-xs font-mono"><div className="flex items-center gap-2"><div className="w-2 h-2" style={{ background: a.color }} /><span className="text-zinc-400">{a.name}</span></div><span className="text-zinc-300">{fmt(a.value)}</span></div>))}</div></div>
-        <StatCard label="KRYPTO" value={fmtChf(alloc.crypto)} sub={`${((alloc.crypto / total) * 100).toFixed(1)}% Anteil`} />
-        <StatCard label="ETFs" value={fmtChf(alloc.etf)} sub={`${((alloc.etf / total) * 100).toFixed(1)}% Anteil`} accent="zinc" />
+        <div className="border border-zinc-800 bg-zinc-950/50 p-4">
+          <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">ALLOKATION</div>
+          <div className="h-40"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={allocPie} dataKey="value" innerRadius={35} outerRadius={60} paddingAngle={2}>{allocPie.map((e,i)=> <Cell key={i} fill={e.color} stroke="#09090b" />)}</Pie><Tooltip formatter={(v)=>fmtChf(v)} contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontSize: 11 }}/></PieChart></ResponsiveContainer></div>
+          <div className="space-y-1 mt-2">{allocPie.map(a => <div key={a.name} className="flex justify-between text-xs font-mono"><div className="flex gap-2"><div className="w-2 h-2" style={{ background: a.color }} /><span className="text-zinc-400">{a.name}</span></div><span>{fmt(a.value)}</span></div>)}</div>
+        </div>
+        <StatCard label="KRYPTO" value={fmtChf(alloc.crypto)} sub={`${((alloc.crypto/total)*100).toFixed(1)}% Anteil`} />
+        <StatCard label="ETFs" value={fmtChf(alloc.etf)} sub={`${((alloc.etf/total)*100).toFixed(1)}% Anteil`} accent="zinc" />
       </div>
-      <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// ALLE POSITIONEN</div><div className="text-[10px] text-zinc-600 font-mono">letzte Aktualisierung: {data.meta.lastUpdate}</div></div><table className="w-full text-sm font-mono"><thead><tr className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800"><th className="text-left px-4 py-2">Asset</th><th className="text-right px-4 py-2">Menge</th><th className="text-right px-4 py-2">Wert CHF</th><th className="text-right px-4 py-2">P/L</th><th className="text-left px-4 py-2 hidden md:table-cell">Plattform</th></tr></thead><tbody>{Object.entries(data.positions).map(([key, p]) => (<tr key={key} className="border-b border-zinc-900 hover:bg-zinc-900/40"><td className="px-4 py-2 text-zinc-200">{p.label}</td><td className="text-right px-4 py-2 text-zinc-400 text-xs">{p.menge ? fmt(p.menge, p.menge < 1 ? 5 : 2) : '–'}</td><td className="text-right px-4 py-2 text-zinc-200">{fmt(p.wertCHF)}</td><td className={`text-right px-4 py-2 ${p.plPct > 0 ? 'text-emerald-400' : p.plPct < 0 ? 'text-red-400' : 'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</td><td className="px-4 py-2 text-zinc-500 text-xs hidden md:table-cell">{p.platform}</td></tr>))}</tbody></table></div>
+      <div className="border border-zinc-800 bg-zinc-950/50 overflow-x-auto">
+        <div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// ALLE POSITIONEN</div></div>
+        <table className="w-full text-sm font-mono"><thead><tr className="text-[10px] uppercase text-zinc-500 border-b border-zinc-800"><th className="text-left px-4 py-2">Asset</th><th className="text-right px-4 py-2">Menge</th><th className="text-right px-4 py-2">Wert CHF</th><th className="text-right px-4 py-2">P/L</th><th className="text-left px-4 py-2 hidden md:table-cell">Plattform</th></tr></thead>
+        <tbody>{Object.entries(data.positions).map(([k,p]) => <tr key={k} className="border-b border-zinc-900 hover:bg-zinc-900/40"><td className="px-4 py-2">{p.label}</td><td className="text-right px-4 py-2 text-xs text-zinc-400">{p.menge ? fmt(p.menge, p.menge<1?5:2) : '–'}</td><td className="text-right px-4 py-2">{fmt(p.wertCHF)}</td><td className={`text-right px-4 py-2 ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</td><td className="px-4 py-2 text-xs text-zinc-500 hidden md:table-cell">{p.platform}</td></tr>)}</tbody></table>
+      </div>
     </div>
   );
 };
@@ -302,28 +572,60 @@ const CryptoTab = ({ data }) => {
   const cryptoKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'crypto');
   return (
     <div className="space-y-6">
-      <div className="grid md:grid-cols-2 gap-4">{cryptoKeys.map(key => { const p = data.positions[key]; const levels = data.sellLevels[key] || []; return (<div key={key} className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="flex items-start justify-between mb-3"><div><div className="text-xs text-zinc-500 font-mono">{p.platform}</div><div className="text-xl font-mono text-zinc-100 mt-0.5">{p.label}</div></div><div className="text-right"><div className="text-lg font-mono text-zinc-200">{fmt(p.wertCHF)} CHF</div><div className={`text-xs font-mono ${p.plPct > 0 ? 'text-emerald-400' : p.plPct < 0 ? 'text-red-400' : 'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</div></div></div>{p.menge > 0 && (<div className="text-xs text-zinc-500 font-mono mb-3">{fmt(p.menge, p.menge < 1 ? 5 : 2)} {p.asset} @ Ø {fmt(p.einstand, p.einstand < 1 ? 4 : 2)}</div>)}{p.conviction != null && (<div className="mb-3"><div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-zinc-500 font-mono mb-1"><span>Conviction</span></div><ConvictionBar value={p.conviction} /></div>)}{levels.length > 0 && (<div className="mt-4 pt-3 border-t border-zinc-800"><div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono mb-2">// Verkaufsstufen</div><div className="space-y-1">{levels.map((lvl, i) => { const reached = p.kurs >= lvl.trigger; const progress = Math.min((p.kurs / lvl.trigger) * 100, 100); return (<div key={i} className="text-xs"><div className="flex items-center justify-between font-mono mb-0.5"><span className={reached ? 'text-emerald-400' : 'text-zinc-400'}>@ {fmt(lvl.trigger, lvl.trigger < 1 ? 3 : 0)} → {lvl.action}</span><span className={reached ? 'text-emerald-400' : 'text-zinc-500'}>{reached ? '✓' : `${progress.toFixed(0)}%`}</span></div><div className="h-0.5 bg-zinc-900"><div className={reached ? 'bg-emerald-400' : 'bg-zinc-700'} style={{ height: '100%', width: `${progress}%` }} /></div></div>); })}</div></div>)}</div>); })}</div>
-      <div className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">// CATALYSTS</div><div className="space-y-2">{data.catalysts.map((c, i) => (<div key={i} className="flex items-start gap-3 text-sm"><div className="text-xs font-mono text-emerald-400 w-20 shrink-0">{c.date}</div><div className="text-xs font-mono text-zinc-500 w-12 shrink-0">{c.asset}</div><div className="flex-1"><div className="text-sm text-zinc-200">{c.event}</div><div className="text-xs text-zinc-500">{c.desc}</div></div></div>))}</div></div>
+      <div className="grid md:grid-cols-2 gap-4">
+        {cryptoKeys.map(key => {
+          const p = data.positions[key];
+          const levels = data.sellLevels[key] || [];
+          const reached = (lvl) => p.kurs >= lvl.trigger;
+          const progress = (lvl) => Math.min((p.kurs / lvl.trigger) * 100, 100);
+          return (
+            <div key={key} className="border border-zinc-800 bg-zinc-950/50 p-4">
+              <div className="flex justify-between mb-3">
+                <div><div className="text-xs text-zinc-500">{p.platform}</div><div className="text-xl font-mono text-zinc-100">{p.label}</div></div>
+                <div className="text-right"><div className="text-lg font-mono">{fmt(p.wertCHF)} CHF</div><div className={`text-xs ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</div></div>
+              </div>
+              {p.menge > 0 && <div className="text-xs text-zinc-500 mb-3">{fmt(p.menge, p.menge<1?5:2)} {p.asset} @ Ø {fmt(p.einstand, p.einstand<1?4:2)}</div>}
+              {p.conviction != null && <div className="mb-3"><div className="text-[10px] uppercase text-zinc-500 mb-1">Conviction</div><ConvictionBar value={p.conviction} /></div>}
+              {levels.length > 0 && <div className="mt-4 pt-3 border-t border-zinc-800"><div className="text-[10px] uppercase text-zinc-500 mb-2">// Verkaufsstufen</div><div className="space-y-1">{levels.map((lvl,i)=> (<div key={i}><div className="flex justify-between text-xs"><span className={reached(lvl)?'text-emerald-400':'text-zinc-400'}>@ {fmt(lvl.trigger, lvl.trigger<1?3:0)} → {lvl.action}</span><span>{reached(lvl)?'✓':`${progress(lvl).toFixed(0)}%`}</span></div><div className="h-0.5 bg-zinc-900"><div className={reached(lvl)?'bg-emerald-400':'bg-zinc-700'} style={{ width: `${progress(lvl)}%`, height: '100%' }} /></div></div>))}</div></div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-[10px] uppercase text-zinc-500 mb-3">// CATALYSTS</div><div className="space-y-2">{data.catalysts.map((c,i)=> <div key={i} className="flex gap-3 text-sm"><div className="text-xs font-mono text-emerald-400 w-20">{c.date}</div><div className="text-xs font-mono text-zinc-500 w-12">{c.asset}</div><div><div className="text-sm">{c.event}</div><div className="text-xs text-zinc-500">{c.desc}</div></div></div>)}</div></div>
     </div>
   );
 };
 
 const VorsorgeTab = ({ data, vorsorgeTotal, targetProgress }) => {
   const items = Object.entries(data.vorsorge);
-  return (<div className="space-y-6"><div className="border border-zinc-800 bg-zinc-950/50 p-6"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-2">// MONATLICHES RENTENEINKOMMEN</div><div className="flex items-end gap-4 flex-wrap"><div className="text-4xl font-mono text-emerald-400">{fmt(vorsorgeTotal)} <span className="text-xl text-zinc-500">CHF/Mo</span></div><div className="text-sm font-mono text-zinc-400">Ziel war {fmt(data.meta.targetMonthlyRetirement)} CHF → <span className="text-emerald-400">{Math.round(targetProgress)}% erreicht</span></div></div><div className="mt-6 space-y-3">{items.map(([k, v]) => { const pct = (v.monthly / vorsorgeTotal) * 100; return (<div key={k}><div className="flex justify-between text-xs font-mono mb-1"><span className="text-zinc-300">{v.label}</span><span className="text-zinc-400">{fmt(v.monthly)} CHF/Mo</span></div><div className="h-2 bg-zinc-900"><div className="h-full bg-emerald-500/70" style={{ width: `${pct}%` }} /></div></div>); })}</div></div><div className="border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex items-start gap-3"><AlertCircle className="text-amber-400 shrink-0 mt-0.5" size={18} /><div><div className="font-mono text-sm text-amber-400">PKZH-EINKAUFSLÜCKE PRÜFEN</div><div className="text-xs text-zinc-400 mt-1">Pro 10.000 CHF PK-Einkauf: ~3.500 CHF Steuer gespart. Zehntausende CHF Potenzial.</div><div className="mt-2 text-xs font-mono flex flex-wrap gap-3"><a href="tel:+41444155700" className="text-emerald-400 hover:text-emerald-300">📞 044 415 57 00</a><a href="mailto:info@pkzh.ch" className="text-emerald-400 hover:text-emerald-300">✉ info@pkzh.ch</a><a href="https://pkzh.ch" target="_blank" rel="noreferrer" className="text-emerald-400 hover:text-emerald-300">🌐 pkzh.ch</a></div></div></div></div></div>);
+  return (
+    <div className="space-y-6">
+      <div className="border border-zinc-800 bg-zinc-950/50 p-6">
+        <div className="text-[10px] uppercase text-zinc-500 mb-2">// MONATLICHES RENTENEINKOMMEN</div>
+        <div className="flex items-end gap-4 flex-wrap"><div className="text-4xl font-mono text-emerald-400">{fmt(vorsorgeTotal)} <span className="text-xl text-zinc-500">CHF/Mo</span></div><div className="text-sm font-mono">Ziel {fmt(data.meta.targetMonthlyRetirement)} CHF → <span className="text-emerald-400">{Math.round(targetProgress)}%</span></div></div>
+        <div className="mt-6 space-y-3">{items.map(([k,v]) => <div key={k}><div className="flex justify-between text-xs font-mono mb-1"><span>{v.label}</span><span>{fmt(v.monthly)} CHF/Mo</span></div><div className="h-2 bg-zinc-900"><div className="h-full bg-emerald-500/70" style={{ width: `${(v.monthly/vorsorgeTotal)*100}%` }} /></div></div>)}</div>
+      </div>
+      <div className="border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex gap-3"><AlertCircle className="text-amber-400 shrink-0 mt-0.5" size={18} /><div><div className="font-mono text-sm text-amber-400">PKZH-EINKAUFSLÜCKE PRÜFEN</div><div className="text-xs text-zinc-400">Pro 10.000 CHF PK-Einkauf: ~3.500 CHF Steuer gespart.</div><div className="mt-2 text-xs font-mono flex gap-3"><a href="tel:+41444155700" className="text-emerald-400">📞 044 415 57 00</a><a href="mailto:info@pkzh.ch" className="text-emerald-400">✉ info@pkzh.ch</a><a href="https://pkzh.ch" target="_blank" className="text-emerald-400">🌐 pkzh.ch</a></div></div></div></div>
+    </div>
+  );
 };
 
 const EtfsTab = ({ data }) => {
   const etfKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'etf');
-  return (<div className="grid md:grid-cols-2 gap-4">{etfKeys.map(k => { const p = data.positions[k]; return (<div key={k} className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-xs text-zinc-500 font-mono">{p.platform}</div><div className="text-xl font-mono text-zinc-100 mt-0.5">{p.label}</div><div className="text-3xl font-mono text-zinc-200 mt-3">{fmt(p.wertCHF)} <span className="text-base text-zinc-500">CHF</span></div><div className={`text-xs font-mono mt-1 ${p.plPct > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</div></div>); })}</div>);
+  return <div className="grid md:grid-cols-2 gap-4">{etfKeys.map(k => <div key={k} className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-xs text-zinc-500">{data.positions[k].platform}</div><div className="text-xl font-mono">{data.positions[k].label}</div><div className="text-3xl font-mono mt-3">{fmt(data.positions[k].wertCHF)} <span className="text-base text-zinc-500">CHF</span></div><div className={`text-xs mt-1 ${data.positions[k].plPct>0?'text-emerald-400':'text-zinc-500'}`}>{data.positions[k].plPct ? fmtPct(data.positions[k].plPct) : '–'}</div></div>)}</div>;
 };
 
 const PlanTab = ({ data, onUpdate }) => {
-  const toggleTodo = (id) => { const newData = { ...data }; newData.todos = data.todos.map(t => t.id === id ? { ...t, done: !t.done } : t); onUpdate(newData); };
+  const toggleTodo = (id) => onUpdate({ ...data, todos: data.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) });
   const monthlyPlan = [{ asset: 'V3AA Sparplan', amount: 1000, platform: 'Swissquote' }, { asset: 'BTC DCA', amount: 300, platform: 'Relai' }, { asset: 'SOL DCA', amount: 250, platform: 'Swissquote' }, { asset: 'RNDR DCA', amount: 50, platform: 'Kraken' }];
-  const total = monthlyPlan.reduce((s, x) => s + x.amount, 0);
-  const sortedTodos = [...data.todos].sort((a, b) => { if (a.done !== b.done) return a.done ? 1 : -1; const prio = { high: 0, medium: 1, low: 2 }; return prio[a.priority] - prio[b.priority]; });
-  return (<div className="space-y-6"><div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// MONATLICHER INVESTMENT-PLAN</div></div><table className="w-full text-sm font-mono"><tbody>{monthlyPlan.map(m => (<tr key={m.asset} className="border-b border-zinc-900"><td className="px-4 py-2 text-zinc-200">{m.asset}</td><td className="px-4 py-2 text-right text-zinc-400">{fmt(m.amount)} CHF</td><td className="px-4 py-2 text-right text-xs text-zinc-500">{m.platform}</td></tr>))}<tr className="bg-zinc-900/40"><td className="px-4 py-2 text-emerald-400 font-bold">TOTAL</td><td className="px-4 py-2 text-right text-emerald-400 font-bold">{fmt(total)} CHF</td><td className="px-4 py-2"></td></tr></tbody></table></div><div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// TODOs</div></div><div className="divide-y divide-zinc-900">{sortedTodos.map(t => (<div key={t.id} onClick={() => toggleTodo(t.id)} className="px-4 py-2 flex items-center gap-3 cursor-pointer hover:bg-zinc-900/40 text-sm"><div className={`w-4 h-4 border ${t.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'} flex items-center justify-center shrink-0`}>{t.done && <Check size={10} className="text-zinc-950" />}</div><div className={`flex-1 font-mono text-xs ${t.done ? 'text-zinc-600 line-through' : 'text-zinc-200'}`}>{t.text}</div><div className={`text-[10px] uppercase font-mono px-2 py-0.5 ${t.priority === 'high' ? 'text-red-400 border border-red-500/30' : t.priority === 'medium' ? 'text-amber-400 border border-amber-500/30' : 'text-zinc-500 border border-zinc-700'}`}>{t.priority}</div></div>))}</div></div></div>);
+  const total = monthlyPlan.reduce((s,x)=>s+x.amount,0);
+  const sortedTodos = [...data.todos].sort((a,b)=> a.done === b.done ? (a.priority === 'high' ? -1 : a.priority === 'medium' ? -1 : 1) : a.done ? 1 : -1);
+  return (
+    <div className="space-y-6">
+      <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// MONATLICHER INVESTMENT-PLAN</div></div><table className="w-full text-sm font-mono"><tbody>{monthlyPlan.map(m => <tr key={m.asset} className="border-b border-zinc-900"><td className="px-4 py-2">{m.asset}</td><td className="px-4 py-2 text-right">{fmt(m.amount)} CHF</td><td className="px-4 py-2 text-right text-xs text-zinc-500">{m.platform}</td></tr>)}<tr className="bg-zinc-900/40"><td className="px-4 py-2 font-bold text-emerald-400">TOTAL</td><td className="px-4 py-2 text-right font-bold text-emerald-400">{fmt(total)} CHF</td><td/></tr></tbody></table></div>
+      <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// TODOs</div></div><div className="divide-y divide-zinc-900">{sortedTodos.map(t => <div key={t.id} onClick={()=>toggleTodo(t.id)} className="px-4 py-2 flex items-center gap-3 cursor-pointer hover:bg-zinc-900/40"><div className={`w-4 h-4 border ${t.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'} flex items-center justify-center`}>{t.done && <Check size={10} className="text-zinc-950" />}</div><div className={`flex-1 text-xs font-mono ${t.done ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{t.text}</div><div className={`text-[10px] uppercase px-2 py-0.5 ${t.priority === 'high' ? 'text-red-400 border border-red-500/30' : t.priority === 'medium' ? 'text-amber-400 border border-amber-500/30' : 'text-zinc-500 border border-zinc-700'}`}>{t.priority}</div></div>)}</div></div>
+    </div>
+  );
 };
 
 // ============================================================
@@ -333,15 +635,26 @@ const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
   const [tab, setTab] = useState('overview');
   const total = calcTotal(data.positions);
   const alloc = calcAllocation(data.positions);
-  const totalHistory = data.history.total || [];
-  const prevTotal = totalHistory.length > 1 ? totalHistory[totalHistory.length - 2].wertCHF : total;
-  const totalChange = total - prevTotal;
-  const totalChangePct = prevTotal ? (totalChange / prevTotal) * 100 : 0;
-  const vorsorgeTotal = Object.values(data.vorsorge).reduce((s, v) => s + v.monthly, 0);
+  const history = data.history.total || [];
+  const prev = history.length > 1 ? history[history.length-2].wertCHF : total;
+  const totalChange = total - prev;
+  const totalChangePct = prev ? (totalChange/prev)*100 : 0;
+  const vorsorgeTotal = Object.values(data.vorsorge).reduce((s,v)=>s+v.monthly,0);
   const targetProgress = (vorsorgeTotal / data.meta.targetMonthlyRetirement) * 100;
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-40"><div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between"><Logo /><div className="flex items-center gap-2"><button onClick={onOpenUpload} className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-3 py-2 transition flex items-center gap-1"><Plus size={14} />UPDATE</button><button onClick={onOpenSettings} className="border border-zinc-800 hover:border-zinc-700 text-zinc-400 p-2"><Settings size={14} /></button></div></div><div className="max-w-7xl mx-auto px-4 flex gap-1 -mb-px overflow-x-auto">{['overview','crypto','vorsorge','etfs','plan'].map(id => (<button key={id} onClick={() => setTab(id)} className={`px-3 py-2 text-xs font-mono border-b-2 transition whitespace-nowrap ${tab === id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>{id === 'overview' ? 'ÜBERSICHT' : id === 'crypto' ? 'KRYPTO' : id === 'vorsorge' ? 'VORSORGE' : id === 'etfs' ? 'ETFs' : 'PLAN & TODOS'}</button>))}</div></header>
+      <header className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+          <Logo />
+          <div className="flex gap-2">
+            <button onClick={onOpenUpload} className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-3 py-2 flex gap-1 items-center"><Plus size={14} />UPDATE</button>
+            <button onClick={onOpenSettings} className="border border-zinc-800 hover:border-zinc-700 p-2"><Settings size={14} /></button>
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto px-4 flex gap-1 -mb-px overflow-x-auto">
+          {['overview','crypto','vorsorge','etfs','plan'].map(id => <button key={id} onClick={()=>setTab(id)} className={`px-3 py-2 text-xs font-mono border-b-2 whitespace-nowrap ${tab===id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>{id==='overview'?'ÜBERSICHT':id==='crypto'?'KRYPTO':id==='vorsorge'?'VORSORGE':id==='etfs'?'ETFs':'PLAN & TODOS'}</button>)}
+        </div>
+      </header>
       <main className="max-w-7xl mx-auto px-4 py-6">
         {tab === 'overview' && <OverviewTab data={data} total={total} totalChange={totalChange} totalChangePct={totalChangePct} alloc={alloc} vorsorgeTotal={vorsorgeTotal} targetProgress={targetProgress} />}
         {tab === 'crypto' && <CryptoTab data={data} />}
@@ -354,49 +667,49 @@ const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
 };
 
 // ============================================================
-// SETTINGS MODAL (mit Worker-URL und Modell-Auswahl)
+// SETTINGS MODAL
 // ============================================================
 const SettingsModal = ({ open, onClose, data, onUpdate, workerUrl, onWorkerUrlChange, modelName, onModelNameChange }) => {
-  const [editUrl, setEditUrl] = useState(workerUrl || DEFAULT_WORKER_URL);
+  const [editUrl, setEditUrl] = useState(workerUrl);
   const [showUrl, setShowUrl] = useState(false);
-  const [editModel, setEditModel] = useState(modelName || DEFAULT_MODEL);
+  const [editModel, setEditModel] = useState(modelName);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
-  useEffect(() => { setEditUrl(workerUrl || DEFAULT_WORKER_URL); setEditModel(modelName || DEFAULT_MODEL); }, [workerUrl, modelName, open]);
-  const runProxyTest = async () => {
-    setTesting(true); setTestResult(null);
-    const log = [];
+  useEffect(() => { setEditUrl(workerUrl); setEditModel(modelName); }, [workerUrl, modelName, open]);
+  const runTest = async () => {
+    setTesting(true);
     try {
-      if (!editUrl) throw new Error('Keine Worker-URL eingegeben.');
-      log.push(`Teste Proxy: ${editUrl} mit Modell ${editModel}`);
-      const response = await fetch(editUrl, {
+      const res = await fetch(editUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: editModel,
-          system: 'Antworte mit PONG',
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'PONG' }] }],
-          max_tokens: 10,
-        }),
+        body: JSON.stringify({ model: editModel, system: 'Antworte mit PONG', messages: [{ role: 'user', content: [{ type: 'text', text: 'PONG' }] }], max_tokens: 10 })
       });
-      log.push(`HTTP Status: ${response.status}`);
-      const raw = await response.text();
-      log.push(`Antwort: ${raw.slice(0,300)}`);
-      if (response.ok) log.push(`✓ Proxy antwortet korrekt.`);
-      else log.push(`❌ Proxy-Fehler: ${raw.slice(0,200)}`);
-      setTestResult({ ok: response.ok, log: log.join('\n') });
-    } catch (e) { log.push(`❌ Fehler: ${e.message}`); setTestResult({ ok: false, log: log.join('\n') }); }
-    finally { setTesting(false); }
+      const txt = await res.text();
+      setTestResult({ ok: res.ok, log: `Status ${res.status}\n${txt.slice(0,300)}` });
+    } catch(e) { setTestResult({ ok: false, log: e.message }); }
+    setTesting(false);
   };
   if (!open) return null;
-  const handleExport = () => { const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `portfolio-${data.meta.lastUpdate}.json`; a.click(); };
-  const handleImport = (e) => { const f = e.target.files?.[0]; if (!f) return; const reader = new FileReader(); reader.onload = (ev) => { try { const imported = JSON.parse(ev.target.result); onUpdate(imported); onClose(); } catch { alert('Datei konnte nicht gelesen werden'); } }; reader.readAsText(f); };
-  const handleReset = () => { if (confirm('Wirklich alle Daten löschen und auf Mai-2026-Stand zurücksetzen?')) { onUpdate(SEED_DATA); onClose(); } };
-  return (<div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"><div className="bg-zinc-950 border border-zinc-800 max-w-md w-full max-h-[90vh] overflow-y-auto"><div className="flex items-center justify-between border-b border-zinc-800 p-4"><div className="font-mono text-sm text-emerald-400">// SETTINGS</div><button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button></div><div className="p-6 space-y-6"><div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Proxy-URL</div><div className="relative"><input type={showUrl ? 'text' : 'password'} value={editUrl} onChange={(e) => setEditUrl(e.target.value)} placeholder="https://dein-worker.workers.dev" className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 pr-10 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none" /><button onClick={() => setShowUrl(!showUrl)} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500">{showUrl ? <EyeOff size={16} /> : <Eye size={16} />}</button></div><button onClick={() => onWorkerUrlChange(editUrl)} className="mt-2 text-xs font-mono text-emerald-400 hover:text-emerald-300">→ Speichern</button></div><div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Modell</div><input type="text" value={editModel} onChange={(e) => setEditModel(e.target.value)} placeholder="z.B. claude-haiku-4-5-20251001" className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none" /><button onClick={() => onModelNameChange(editModel)} className="mt-2 text-xs font-mono text-emerald-400 hover:text-emerald-300">→ Speichern</button><p className="text-[10px] text-zinc-500 mt-1">Aktuelle Modelle: claude-haiku-4-5-20251001, claude-3-7-sonnet-20250219, claude-3-5-sonnet-20241022</p></div><div><div className="text-xs font-mono text-zinc-400 mb-2">Proxy-Diagnose</div><button onClick={runProxyTest} disabled={testing} className="w-full border border-zinc-800 hover:border-emerald-500/50 text-zinc-300 font-mono text-xs py-2 flex items-center justify-center gap-2">{testing ? <Loader2 className="animate-spin" size={14} /> : null}{testing ? 'TESTE...' : 'PROXY-VERBINDUNG TESTEN'}</button>{testResult && (<div className={`mt-2 p-2 border text-[10px] font-mono whitespace-pre-wrap break-words max-h-64 overflow-auto ${testResult.ok ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/5' : 'border-red-500/30 text-red-300 bg-red-500/5'}`}>{testResult.log}<button onClick={() => navigator.clipboard?.writeText(testResult.log)} className="block mt-2 text-zinc-500 hover:text-zinc-300">→ Kopieren</button></div>)}</div><div className="border-t border-zinc-800 pt-6"><div className="text-xs font-mono text-zinc-400 mb-2">Daten</div><div className="space-y-2"><button onClick={handleExport} className="w-full border border-zinc-800 hover:border-zinc-700 text-zinc-300 font-mono text-xs py-2 flex items-center justify-center gap-2"><Download size={14} /> JSON EXPORTIEREN</button><label className="block"><span className="w-full border border-zinc-800 hover:border-zinc-700 text-zinc-300 font-mono text-xs py-2 flex items-center justify-center gap-2 cursor-pointer"><Upload size={14} /> JSON IMPORTIEREN</span><input type="file" accept=".json" onChange={handleImport} className="hidden" /></label><button onClick={handleReset} className="w-full border border-red-500/30 text-red-400 hover:bg-red-500/10 font-mono text-xs py-2 flex items-center justify-center gap-2"><Trash2 size={14} /> ZURÜCKSETZEN AUF SEED</button></div></div></div></div></div>);
+  const handleExport = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})); a.download = `portfolio-${data.meta.lastUpdate}.json`; a.click(); };
+  const handleImport = (e) => { const f = e.target.files[0]; if(f){ const r = new FileReader(); r.onload = ev => { try { onUpdate(JSON.parse(ev.target.result)); onClose(); } catch{ alert('Fehler beim Import'); } }; r.readAsText(f); } };
+  const handleReset = () => { if(confirm('Zurücksetzen auf Seed-Daten?')){ onUpdate(SEED_DATA); onClose(); } };
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex justify-center items-center p-4">
+      <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full max-h-[90vh] overflow-auto">
+        <div className="flex justify-between items-center border-b border-zinc-800 p-4"><div className="font-mono text-sm text-emerald-400">// SETTINGS</div><button onClick={onClose}><X size={18} /></button></div>
+        <div className="p-6 space-y-6">
+          <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Proxy-URL</div><div className="relative"><input type={showUrl?'text':'password'} value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 pr-10 text-sm font-mono" /><button onClick={()=>setShowUrl(!showUrl)} className="absolute right-2 top-1/2 -translate-y-1/2">{showUrl?<EyeOff size={16}/>:<Eye size={16}/>}</button></div><button onClick={()=>onWorkerUrlChange(editUrl)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
+          <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Modell</div><input type="text" value={editModel} onChange={e=>setEditModel(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm font-mono" /><button onClick={()=>onModelNameChange(editModel)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
+          <div><button onClick={runTest} disabled={testing} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2">{testing?<Loader2 className="animate-spin" size={14}/>:null}{testing?'TESTE...':'PROXY VERBINDUNG TESTEN'}</button>{testResult && <div className={`mt-2 p-2 border text-[10px] font-mono ${testResult.ok?'border-emerald-500/30 text-emerald-300':'border-red-500/30 text-red-300'}`}>{testResult.log}</div>}</div>
+          <div className="border-t border-zinc-800 pt-6"><div className="text-xs font-mono text-zinc-400 mb-2">Daten</div><div className="space-y-2"><button onClick={handleExport} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2"><Download size={14}/>JSON EXPORTIEREN</button><label className="block w-full border border-zinc-800 py-2 text-xs font-mono text-center cursor-pointer"><Upload size={14} className="inline mr-1"/>JSON IMPORTIEREN<input type="file" accept=".json" onChange={handleImport} className="hidden"/></label><button onClick={handleReset} className="w-full border border-red-500/30 text-red-400 py-2 text-xs font-mono"><Trash2 size={14} className="inline mr-1"/>ZURÜCKSETZEN</button></div></div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // ============================================================
-// APP (ohne Setup-Bildschirm)
+// APP
 // ============================================================
 function App() {
   const [data, setData] = useState(null);
@@ -410,36 +723,30 @@ function App() {
     const stored = loadData();
     const url = loadWorkerUrl();
     const model = loadModelName();
-    if (stored) setData(stored);
-    else setData(SEED_DATA);
-    if (url) setWorkerUrl(url);
-    if (model) setModelName(model);
+    setData(stored || SEED_DATA);
+    setWorkerUrl(url);
+    setModelName(model);
     setBooted(true);
   }, []);
 
-  useEffect(() => {
-    if (data && booted) saveData(data);
-  }, [data, booted]);
+  useEffect(() => { if (data && booted) saveData(data); }, [data, booted]);
 
-  const handleWorkerUrlChange = (newUrl) => { saveWorkerUrl(newUrl); setWorkerUrl(newUrl); };
-  const handleModelNameChange = (newModel) => { saveModelName(newModel); setModelName(newModel); };
-
-  const handleSaveExtracted = (positions, source) => {
-    const newData = { ...data };
+  const handleSaveExtracted = (positions) => {
+    const newData = JSON.parse(JSON.stringify(data));
     const today = new Date().toISOString().slice(0,10);
-    positions.forEach(p => {
-      if (!p.asset) return;
+    for (const p of positions) {
+      if (!p.asset) continue;
       const ticker = p.asset.toUpperCase().replace(/[^A-Z0-9-]/g, '');
       const keyMap = { 'BTC':'btc','ETH':'eth','SOL':'sol','KAS':'kas','RNDR':'rndr','RENDER':'rndr','V3AA':'v3aaCH','VIAC':'viac','ETF-DE':'etfDE','CASH':'cash' };
       const key = keyMap[ticker];
       if (key && newData.positions[key]) {
-        Object.keys(p).forEach(field => {
-          if (field !== 'asset' && p[field] != null) newData.positions[key][field] = p[field];
-        });
+        Object.keys(p).forEach(f => { if (f !== 'asset' && p[f] != null) newData.positions[key][f] = p[f]; });
         if (!newData.history[key]) newData.history[key] = [];
         newData.history[key].push({ date: today, wertCHF: newData.positions[key].wertCHF });
-      }
-    });
+      } else if (ticker === 'PKZH' && p.monthly) newData.vorsorge.pkzh.monthly = p.monthly;
+      else if (ticker === 'AHV' && p.monthly) newData.vorsorge.ahv.monthly = p.monthly;
+      else if (ticker === 'AERZTE' && p.monthly) newData.vorsorge.aerzte.monthly = p.monthly;
+    }
     const newTotal = calcTotal(newData.positions);
     if (!newData.history.total) newData.history.total = [];
     newData.history.total.push({ date: today, wertCHF: newTotal });
@@ -447,33 +754,13 @@ function App() {
     setData(newData);
   };
 
-  if (!booted) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 className="text-emerald-400 animate-spin" size={24} /></div>;
+  if (!booted) return <div className="min-h-screen bg-zinc-950 flex justify-center items-center"><Loader2 className="text-emerald-400 animate-spin" size={24} /></div>;
 
   return (
     <>
-      <Dashboard
-        data={data}
-        onUpdate={setData}
-        onOpenUpload={() => setUploadOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
-      <UploadModal
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        onSave={handleSaveExtracted}
-        workerUrl={workerUrl}
-        modelName={modelName}
-      />
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        data={data}
-        onUpdate={setData}
-        workerUrl={workerUrl}
-        onWorkerUrlChange={handleWorkerUrlChange}
-        modelName={modelName}
-        onModelNameChange={handleModelNameChange}
-      />
+      <Dashboard data={data} onUpdate={setData} onOpenUpload={()=>setUploadOpen(true)} onOpenSettings={()=>setSettingsOpen(true)} />
+      <UploadModal open={uploadOpen} onClose={()=>setUploadOpen(false)} onSave={handleSaveExtracted} workerUrl={workerUrl} modelName={modelName} />
+      <SettingsModal open={settingsOpen} onClose={()=>setSettingsOpen(false)} data={data} onUpdate={setData} workerUrl={workerUrl} onWorkerUrlChange={setWorkerUrl} modelName={modelName} onModelNameChange={setModelName} />
     </>
   );
 }
