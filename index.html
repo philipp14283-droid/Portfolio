@@ -4,13 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Portfolio Terminal</title>
+  <!-- Tailwind CSS für schnelles Styling (Utility-First) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React und ReactDOM als CDN (kein Build-Tool nötig) -->
   <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <!-- Babel, damit wir JSX im Browser verwenden können -->
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+  <!-- Recharts für Diagramme (AreaChart, PieChart) -->
   <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
   <style>
+    /* Entfernt die Spinner-Pfeile bei number-Inputs für bessere Optik */
     body { background: #09090b; }
     input[type=number]::-webkit-inner-spin-button,
     input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -20,752 +25,813 @@
   <div id="root"></div>
 
   <script type="text/babel" data-presets="react">
-const { useState, useEffect, useRef } = React;
-const {
-  AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip,
-  PieChart, Pie, Cell,
-} = Recharts;
+    // ============================================================
+    // 1. IMPORTS & GLOBALE KONSTANTEN
+    // ============================================================
+    // Wir holen uns die benötigten React-Hooks und Recharts-Komponenten.
+    const { useState, useEffect, useRef } = React;
+    const {
+      AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip,
+      PieChart, Pie, Cell,
+    } = Recharts;
 
-// ============================================================
-// FESTE WORKER-URL (Cloudflare)
-// ============================================================
-const DEFAULT_WORKER_URL = 'https://portfolio.y68xps2sdk.workers.dev';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
+    // Feste Cloudflare Worker-URL (als Proxy zur Claude API)
+    // Diese URL muss einen gültigen Worker mit hinterlegtem API-Key haben.
+    const DEFAULT_WORKER_URL = 'https://portfolio.y68xps2sdk.workers.dev';
+    // Standard-Claude-Modell: das aktuellste Haiku 4.5 (Oktober 2025)
+    const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 
-// ============================================================
-// ICONS (vollständig)
-// ============================================================
-const Icon = ({ children, size = 16, className = '', ...rest }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
-    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-    className={className} {...rest}>{children}</svg>
-);
-const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
-const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
-const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12" /></Icon>;
-const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>;
-const Settings = (p) => <Icon {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></Icon>;
-const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>;
-const AlertCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></Icon>;
-const TrendingUp = (p) => <Icon {...p}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></Icon>;
-const TrendingDown = (p) => <Icon {...p}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></Icon>;
-const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
-const Loader2 = (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-6.219-8.56" /></Icon>;
-const Eye = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></Icon>;
-const EyeOff = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></Icon>;
-const FileText = (p) => <Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></Icon>;
+    // ============================================================
+    // 2. ICONS (Inline-SVGs, damit keine externen Abhängigkeiten)
+    // ============================================================
+    // Jedes Icon ist eine kleine React-Komponente, die ein SVG rendert.
+    const Icon = ({ children, size = 16, className = '', ...rest }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        className={className} {...rest}>{children}</svg>
+    );
+    const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>;
+    const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Icon>;
+    const Check = (p) => <Icon {...p}><polyline points="20 6 9 17 4 12" /></Icon>;
+    const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>;
+    const Settings = (p) => <Icon {...p}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></Icon>;
+    const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>;
+    const AlertCircle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></Icon>;
+    const TrendingUp = (p) => <Icon {...p}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></Icon>;
+    const TrendingDown = (p) => <Icon {...p}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6" /><polyline points="17 18 23 18 23 12" /></Icon>;
+    const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
+    const Loader2 = (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-6.219-8.56" /></Icon>;
+    const Eye = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></Icon>;
+    const EyeOff = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></Icon>;
+    const FileText = (p) => <Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></Icon>;
 
-// ============================================================
-// SEED DATA
-// ============================================================
-const SEED_DATA = {
-  meta: { name: 'Philipp', age: 43, targetMonthlyRetirement: 5000, lastUpdate: '2026-05-22', currency: 'CHF' },
-  positions: {
-    btc: { asset: 'BTC', label: 'Bitcoin', menge: 0.38770, einstand: 66800, kurs: 74000, wertCHF: 28680, plPct: 10.78, platform: 'BitBox02', conviction: 95, category: 'crypto' },
-    eth: { asset: 'ETH', label: 'Ethereum', menge: 2.0, einstand: 2100, kurs: 2100, wertCHF: 4200, plPct: 0, platform: 'BitBox02', conviction: 55, category: 'crypto' },
-    sol: { asset: 'SOL', label: 'Solana', menge: 15.55, einstand: 75, kurs: 78, wertCHF: 1215, plPct: 1.37, platform: 'Swissquote (gestakt)', conviction: 75, category: 'crypto' },
-    kas: { asset: 'KAS', label: 'Kaspa', menge: 23529, einstand: 0.031, kurs: 0.031, wertCHF: 729, plPct: 0, platform: 'Kraken', conviction: 70, category: 'crypto' },
-    rndr: { asset: 'RNDR', label: 'Render', menge: 0, einstand: 0, kurs: 1.37, wertCHF: 0, plPct: 0, platform: 'Kraken (geplant)', conviction: 70, category: 'crypto' },
-    viac: { asset: 'VIAC', label: 'VIAC 3a Nachhaltig', menge: 1, einstand: 0, kurs: 0, wertCHF: 52910, plPct: 40.66, platform: 'VIAC', conviction: null, category: 'etf' },
-    v3aaCH: { asset: 'V3AA', label: 'V3AA Schweiz', menge: 0, einstand: 0, kurs: 0, wertCHF: 20000, plPct: 2.76, platform: 'Swissquote', conviction: null, category: 'etf' },
-    etfDE: { asset: 'ETF-DE', label: 'ETFs Deutschland', menge: 0, einstand: 0, kurs: 0, wertCHF: 107000, plPct: 27.0, platform: 'Altes Depot DE', conviction: null, category: 'etf' },
-    cash: { asset: 'CASH', label: 'Notgroschen', menge: 0, einstand: 0, kurs: 0, wertCHF: 25000, plPct: 0, platform: 'Konto', conviction: null, category: 'cash' },
-  },
-  vorsorge: { ahv: { label: 'AHV', monthly: 1800 }, pkzh: { label: 'Pensionskasse Zürich', monthly: 3250 }, aerzte: { label: 'Ärzteversorgung DE', monthly: 1500 } },
-  sellLevels: {
-    btc: [{ trigger: 100000, action: '0.02 BTC verkaufen' }, { trigger: 150000, action: '0.02 BTC verkaufen' }, { trigger: 200000, action: '0.02 BTC verkaufen' }, { trigger: 300000, action: '0.02 BTC verkaufen' }],
-    sol: [{ trigger: 300, action: '20 SOL → V3AA' }, { trigger: 600, action: '16 SOL → V3AA' }, { trigger: 1000, action: '13 SOL → V3AA' }],
-    kas: [{ trigger: 0.10, action: '5.882 KAS → V3AA' }, { trigger: 0.20, action: '7.059 KAS → V3AA' }, { trigger: 0.50, action: '2.647 KAS → V3AA' }],
-    rndr: [{ trigger: 5, action: '25% → V3AA' }, { trigger: 10, action: '25% → V3AA' }, { trigger: 20, action: '25% → V3AA' }, { trigger: 50, action: '25% → V3AA' }],
-  },
-  todos: [
-    { id: 1, text: 'KAS Verkaufsorders auf Kraken einrichten (3 Stufen)', priority: 'high', done: false },
-    { id: 2, text: 'BTC Verkaufsorders einrichten (4×0.02 BTC)', priority: 'high', done: false },
-    { id: 3, text: 'Kastle Wallet installieren + KAS Moonbag transferieren', priority: 'high', done: false },
-    { id: 4, text: 'PKZH kontaktieren – Einkaufslücke prüfen', priority: 'high', done: false },
-    { id: 5, text: 'Ärzteversorgung DE – Kontoauszug anfordern', priority: 'medium', done: false },
-    { id: 6, text: 'Steuerberater CH/DE finden – Wegzugsbesteuerung', priority: 'medium', done: false },
-    { id: 7, text: 'AHV-Auszug bei ahv-iv.ch bestellen', priority: 'medium', done: false },
-    { id: 8, text: 'Alte Leipziger – Antwort bzgl. Trennung BU/Basisrente abwarten', priority: 'low', done: false },
-  ],
-  catalysts: [
-    { date: '2026-06-15', asset: 'KAS', event: 'Toccata Hardfork', desc: 'KRC-20, SilverScript, ZK-Proofs' },
-    { date: '2026-Q4', asset: 'SOL', event: 'Alpenglow Mainnet', desc: '150ms Finalität (80× schneller)' },
-    { date: 'laufend', asset: 'RNDR', event: 'AI-Burns beschleunigen', desc: '+278% Burns in April 2026' },
-  ],
-  history: {
-    btc: [{ date: '2026-05-22', wertCHF: 28680 }], eth: [{ date: '2026-05-22', wertCHF: 4200 }], sol: [{ date: '2026-05-22', wertCHF: 1215 }],
-    kas: [{ date: '2026-05-22', wertCHF: 729 }], rndr: [{ date: '2026-05-22', wertCHF: 0 }], viac: [{ date: '2026-05-22', wertCHF: 52910 }],
-    v3aaCH: [{ date: '2026-05-22', wertCHF: 20000 }], etfDE: [{ date: '2026-05-22', wertCHF: 107000 }], cash: [{ date: '2026-05-22', wertCHF: 25000 }],
-    total: [{ date: '2026-05-22', wertCHF: 239734 }],
-  },
-};
-
-// ============================================================
-// STORAGE
-// ============================================================
-const STORAGE_KEY = 'portfolio-dashboard-v1';
-const WORKER_URL_STORAGE = 'claude-worker-url';
-const MODEL_NAME_STORAGE = 'claude-model-name';
-
-const loadData = () => { try { const v = localStorage.getItem(STORAGE_KEY); return v ? JSON.parse(v) : null; } catch { return null; } };
-const saveData = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { console.error(e); } };
-const loadWorkerUrl = () => { try { return localStorage.getItem(WORKER_URL_STORAGE) || DEFAULT_WORKER_URL; } catch { return DEFAULT_WORKER_URL; } };
-const saveWorkerUrl = (url) => { try { localStorage.setItem(WORKER_URL_STORAGE, url); } catch (e) { console.error(e); } };
-const loadModelName = () => { try { return localStorage.getItem(MODEL_NAME_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; } };
-const saveModelName = (model) => { try { localStorage.setItem(MODEL_NAME_STORAGE, model); } catch (e) { console.error(e); } };
-
-// ============================================================
-// UNIVERSALER PROMPT (erkennt alles automatisch)
-// ============================================================
-const UNIVERSAL_PROMPT = `Du bist ein professioneller Datenextraktor für Finanz- und Depotauszüge.
-Der Benutzer lädt einen Screenshot oder kopierten Text einer beliebigen Quelle hoch.
-Erkenne automatisch, um welche Art von Auszug es sich handelt (Swissquote, Kraken, Relai, VIAC 3a, deutsches ETF-Depot, Vorsorgebescheinigung PKZH/AHV/Ärzteversorgung).
-
-Extrahiere alle erkennbaren Positionen im folgenden JSON-Format:
-{"positions": [{"asset": "BTC", "menge": 0.123, "einstand": 45000, "kurs": 50000, "wertCHF": 6150, "plPct": 11.11}]}
-
-Regeln:
-- 'asset' ist der Ticker (BTC, ETH, SOL, KAS, RNDR, V3AA, VIAC, ETF-DE, CASH, etc.)
-- 'menge' ist die Anzahl Einheiten (Zahl)
-- 'einstand' ist der durchschnittliche Kaufpreis pro Einheit (Zahl, Währung egal)
-- 'kurs' ist der aktuelle Preis pro Einheit (Zahl)
-- 'wertCHF' ist der Gesamtwert in CHF (Zahl)
-- 'plPct' ist die prozentuale Performance (Zahl, negativ bei Verlust)
-- Für Vorsorgeauszüge (PKZH, AHV, Ärzteversorgung) extrahiere stattdessen: {"positions": [{"asset": "PKZH", "monthly": 3250}]}
-- Für VIAC 3a: wertCHF und plPct
-- Für reine ETF-Depots (DE): Werte in EUR, Umrechnung nach CHF mit Faktor 1.077
-- Wenn ein Wert nicht erkennbar ist, gib 0 zurück.
-
-WICHTIG: Antworte ausschließlich mit reinem JSON, keine Erklärungen, kein Markdown, keine Code-Fences. Beginne direkt mit { und ende mit }.`;
-
-// ============================================================
-// CLAUDE API via Worker Proxy
-// ============================================================
-const compressImage = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      let width = img.width, height = img.height;
-      const maxDim = 1568;
-      if (width > maxDim || height > maxDim) {
-        if (width > height) { height = Math.round((height * maxDim) / width); width = maxDim; }
-        else { width = Math.round((width * maxDim) / height); height = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-      resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+    // ============================================================
+    // 3. SEED-DATEN (Beispieldaten für den Erststart)
+    // ============================================================
+    // Diese Daten werden geladen, wenn kein gespeicherter Zustand im localStorage existiert.
+    // Sie repräsentieren eine Beispiel-Portfolio-Situation (Mai 2026).
+    const SEED_DATA = {
+      meta: { name: 'Philipp', age: 43, targetMonthlyRetirement: 5000, lastUpdate: '2026-05-22', currency: 'CHF' },
+      positions: {
+        btc: { asset: 'BTC', label: 'Bitcoin', menge: 0.38770, einstand: 66800, kurs: 74000, wertCHF: 28680, plPct: 10.78, platform: 'BitBox02', conviction: 95, category: 'crypto' },
+        eth: { asset: 'ETH', label: 'Ethereum', menge: 2.0, einstand: 2100, kurs: 2100, wertCHF: 4200, plPct: 0, platform: 'BitBox02', conviction: 55, category: 'crypto' },
+        sol: { asset: 'SOL', label: 'Solana', menge: 15.55, einstand: 75, kurs: 78, wertCHF: 1215, plPct: 1.37, platform: 'Swissquote (gestakt)', conviction: 75, category: 'crypto' },
+        kas: { asset: 'KAS', label: 'Kaspa', menge: 23529, einstand: 0.031, kurs: 0.031, wertCHF: 729, plPct: 0, platform: 'Kraken', conviction: 70, category: 'crypto' },
+        rndr: { asset: 'RNDR', label: 'Render', menge: 0, einstand: 0, kurs: 1.37, wertCHF: 0, plPct: 0, platform: 'Kraken (geplant)', conviction: 70, category: 'crypto' },
+        viac: { asset: 'VIAC', label: 'VIAC 3a Nachhaltig', menge: 1, einstand: 0, kurs: 0, wertCHF: 52910, plPct: 40.66, platform: 'VIAC', conviction: null, category: 'etf' },
+        v3aaCH: { asset: 'V3AA', label: 'V3AA Schweiz', menge: 0, einstand: 0, kurs: 0, wertCHF: 20000, plPct: 2.76, platform: 'Swissquote', conviction: null, category: 'etf' },
+        etfDE: { asset: 'ETF-DE', label: 'ETFs Deutschland', menge: 0, einstand: 0, kurs: 0, wertCHF: 107000, plPct: 27.0, platform: 'Altes Depot DE', conviction: null, category: 'etf' },
+        cash: { asset: 'CASH', label: 'Notgroschen', menge: 0, einstand: 0, kurs: 0, wertCHF: 25000, plPct: 0, platform: 'Konto', conviction: null, category: 'cash' },
+      },
+      vorsorge: { ahv: { label: 'AHV', monthly: 1800 }, pkzh: { label: 'Pensionskasse Zürich', monthly: 3250 }, aerzte: { label: 'Ärzteversorgung DE', monthly: 1500 } },
+      sellLevels: {
+        btc: [{ trigger: 100000, action: '0.02 BTC verkaufen' }, { trigger: 150000, action: '0.02 BTC verkaufen' }, { trigger: 200000, action: '0.02 BTC verkaufen' }, { trigger: 300000, action: '0.02 BTC verkaufen' }],
+        sol: [{ trigger: 300, action: '20 SOL → V3AA' }, { trigger: 600, action: '16 SOL → V3AA' }, { trigger: 1000, action: '13 SOL → V3AA' }],
+        kas: [{ trigger: 0.10, action: '5.882 KAS → V3AA' }, { trigger: 0.20, action: '7.059 KAS → V3AA' }, { trigger: 0.50, action: '2.647 KAS → V3AA' }],
+        rndr: [{ trigger: 5, action: '25% → V3AA' }, { trigger: 10, action: '25% → V3AA' }, { trigger: 20, action: '25% → V3AA' }, { trigger: 50, action: '25% → V3AA' }],
+      },
+      todos: [
+        { id: 1, text: 'KAS Verkaufsorders auf Kraken einrichten (3 Stufen)', priority: 'high', done: false },
+        { id: 2, text: 'BTC Verkaufsorders einrichten (4×0.02 BTC)', priority: 'high', done: false },
+        { id: 3, text: 'Kastle Wallet installieren + KAS Moonbag transferieren', priority: 'high', done: false },
+        { id: 4, text: 'PKZH kontaktieren – Einkaufslücke prüfen', priority: 'high', done: false },
+        { id: 5, text: 'Ärzteversorgung DE – Kontoauszug anfordern', priority: 'medium', done: false },
+        { id: 6, text: 'Steuerberater CH/DE finden – Wegzugsbesteuerung', priority: 'medium', done: false },
+        { id: 7, text: 'AHV-Auszug bei ahv-iv.ch bestellen', priority: 'medium', done: false },
+        { id: 8, text: 'Alte Leipziger – Antwort bzgl. Trennung BU/Basisrente abwarten', priority: 'low', done: false },
+      ],
+      catalysts: [
+        { date: '2026-06-15', asset: 'KAS', event: 'Toccata Hardfork', desc: 'KRC-20, SilverScript, ZK-Proofs' },
+        { date: '2026-Q4', asset: 'SOL', event: 'Alpenglow Mainnet', desc: '150ms Finalität (80× schneller)' },
+        { date: 'laufend', asset: 'RNDR', event: 'AI-Burns beschleunigen', desc: '+278% Burns in April 2026' },
+      ],
+      history: {
+        btc: [{ date: '2026-05-22', wertCHF: 28680 }], eth: [{ date: '2026-05-22', wertCHF: 4200 }], sol: [{ date: '2026-05-22', wertCHF: 1215 }],
+        kas: [{ date: '2026-05-22', wertCHF: 729 }], rndr: [{ date: '2026-05-22', wertCHF: 0 }], viac: [{ date: '2026-05-22', wertCHF: 52910 }],
+        v3aaCH: [{ date: '2026-05-22', wertCHF: 20000 }], etfDE: [{ date: '2026-05-22', wertCHF: 107000 }], cash: [{ date: '2026-05-22', wertCHF: 25000 }],
+        total: [{ date: '2026-05-22', wertCHF: 239734 }],
+      },
     };
-    img.onerror = reject;
-    img.src = reader.result;
-  };
-  reader.onerror = reject;
-  reader.readAsDataURL(file);
-});
 
-const callClaudeProxy = async (workerUrl, modelName, systemPrompt, userContentParts) => {
-  const response = await fetch(workerUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: modelName,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContentParts }],
-      max_tokens: 4096,
-      temperature: 0,
-    }),
-  });
-  const raw = await response.text();
-  if (!response.ok) throw new Error(`Proxy-Fehler (${response.status}): ${raw.slice(0,400)}`);
-  let data;
-  try { data = JSON.parse(raw); } catch(e) { throw new Error(`Proxy antwortete kein JSON: ${raw.slice(0,300)}`); }
-  const textBlock = data.content?.find(block => block.type === 'text');
-  if (!textBlock?.text) throw new Error('Keine Textantwort vom Proxy');
-  const cleaned = textBlock.text.replace(/```json/gi, '').replace(/```/g, '').trim();
-  try { return JSON.parse(cleaned); } catch(e) { throw new Error(`JSON-Parse-Fehler: ${cleaned.slice(0,300)}`); }
-};
+    // ============================================================
+    // 4. LOCALSTORAGE – SPEICHERN / LADEN
+    // ============================================================
+    // Diese Funktionen kapseln den Zugriff auf den Browser-Speicher.
+    // Zwei Schlüssel: einer für die Portfolio-Daten, einer für die Worker-URL,
+    // einer für den Modellnamen.
+    const STORAGE_KEY = 'portfolio-dashboard-v1';
+    const WORKER_URL_STORAGE = 'claude-worker-url';
+    const MODEL_NAME_STORAGE = 'claude-model-name';
 
-const callClaudeVisionViaProxy = async (workerUrl, modelName, { base64, mimeType }) => {
-  return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [
-    { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-    { type: 'text', text: 'Extrahiere alle Positionen aus diesem Screenshot gemäss Systemanweisung. Gib nur JSON zurück.' }
-  ]);
-};
+    const loadData = () => { try { const v = localStorage.getItem(STORAGE_KEY); return v ? JSON.parse(v) : null; } catch { return null; } };
+    const saveData = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { console.error(e); } };
+    const loadWorkerUrl = () => { try { return localStorage.getItem(WORKER_URL_STORAGE) || DEFAULT_WORKER_URL; } catch { return DEFAULT_WORKER_URL; } };
+    const saveWorkerUrl = (url) => { try { localStorage.setItem(WORKER_URL_STORAGE, url); } catch (e) { console.error(e); } };
+    const loadModelName = () => { try { return localStorage.getItem(MODEL_NAME_STORAGE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; } };
+    const saveModelName = (model) => { try { localStorage.setItem(MODEL_NAME_STORAGE, model); } catch (e) { console.error(e); } };
 
-const callClaudeTextViaProxy = async (workerUrl, modelName, rawText) => {
-  return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [{ type: 'text', text: `--- DATEN ---\n${rawText}\n\nExtrahiere Positionen. Gib nur JSON.` }]);
-};
+    // ============================================================
+    // 5. UNIVERSALER PROMPT FÜR CLAUDE
+    // ============================================================
+    // Dieser Prompt wird an die Claude API gesendet. Er enthält alle nötigen Anweisungen,
+    // damit die KI erkennt, um welche Art von Auszug es sich handelt (Swissquote, Kraken,
+    // VIAC, deutsches Depot, Vorsorgebescheinigung) und die Daten im korrekten JSON-Format
+    // zurückgibt. Die Anweisung ist sehr detailliert, damit die KI keine Fehler macht.
+    const UNIVERSAL_PROMPT = `Du bist ein professioneller Datenextraktor für Finanz- und Depotauszüge.
+    Der Benutzer lädt einen Screenshot oder kopierten Text einer beliebigen Quelle hoch.
+    Erkenne automatisch, um welche Art von Auszug es sich handelt (Swissquote, Kraken, Relai, VIAC 3a, deutsches ETF-Depot, Vorsorgebescheinigung PKZH/AHV/Ärzteversorgung).
 
-// ============================================================
-// UTILITIES
-// ============================================================
-const fmt = (n, decimals = 0) => n == null || isNaN(n) ? '–' : new Intl.NumberFormat('de-CH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
-const fmtChf = (n) => `${fmt(n, 0)} CHF`;
-const fmtPct = (n) => `${n > 0 ? '+' : ''}${fmt(n, 2)}%`;
-const calcTotal = (positions) => Object.values(positions).reduce((s, p) => s + (p.wertCHF || 0), 0);
-const calcAllocation = (positions) => {
-  const cats = { crypto: 0, etf: 0, cash: 0 };
-  Object.values(positions).forEach(p => { if (cats[p.category] !== undefined) cats[p.category] += p.wertCHF || 0; });
-  return cats;
-};
+    Extrahiere alle erkennbaren Positionen im folgenden JSON-Format:
+    {"positions": [{"asset": "BTC", "menge": 0.123, "einstand": 45000, "kurs": 50000, "wertCHF": 6150, "plPct": 11.11}]}
 
-// Merge-Funktion für Batch
-const mergeMultiplePositionLists = (allPositionsArrays) => {
-  const mergedMap = new Map();
-  for (const positionArray of allPositionsArrays) {
-    for (const pos of positionArray) {
-      const asset = pos.asset;
-      if (!asset) continue;
-      if (!mergedMap.has(asset)) {
-        mergedMap.set(asset, {
-          asset: asset,
-          menge: pos.menge || 0,
-          wertCHF: pos.wertCHF || 0,
-          einstand: pos.einstand || 0,
-          plPct: pos.plPct || 0,
-          kurs: pos.kurs || 0,
-        });
-      } else {
-        const existing = mergedMap.get(asset);
-        const newMenge = existing.menge + (pos.menge || 0);
-        const newWert = existing.wertCHF + (pos.wertCHF || 0);
-        const newEinstand = newMenge > 0 ? newWert / newMenge : 0;
-        const newKurs = newMenge > 0 ? (existing.kurs * existing.menge + (pos.kurs || 0) * (pos.menge || 0)) / newMenge : 0;
-        mergedMap.set(asset, {
-          asset: asset,
-          menge: newMenge,
-          wertCHF: newWert,
-          einstand: newEinstand,
-          kurs: newKurs,
-          plPct: 0,
-        });
-      }
-    }
-  }
-  return Array.from(mergedMap.values());
-};
+    Regeln:
+    - 'asset' ist der Ticker (BTC, ETH, SOL, KAS, RNDR, V3AA, VIAC, ETF-DE, CASH, etc.)
+    - 'menge' ist die Anzahl Einheiten (Zahl)
+    - 'einstand' ist der durchschnittliche Kaufpreis pro Einheit (Zahl, Währung egal)
+    - 'kurs' ist der aktuelle Preis pro Einheit (Zahl)
+    - 'wertCHF' ist der Gesamtwert in CHF (Zahl)
+    - 'plPct' ist die prozentuale Performance (Zahl, negativ bei Verlust)
+    - Für Vorsorgeauszüge (PKZH, AHV, Ärzteversorgung) extrahiere stattdessen: {"positions": [{"asset": "PKZH", "monthly": 3250}]}
+    - Für VIAC 3a: wertCHF und plPct
+    - Für reine ETF-Depots (DE): Werte in EUR, Umrechnung nach CHF mit Faktor 1.077
+    - Wenn ein Wert nicht erkennbar ist, gib 0 zurück.
 
-// ============================================================
-// UI KOMPONENTEN (Logo, StatCard, ConvictionBar)
-// ============================================================
-const Logo = () => (
-  <div className="flex items-center gap-2">
-    <div className="w-8 h-8 bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center"><div className="w-3 h-3 bg-emerald-400" /></div>
-    <div><div className="text-xs font-mono text-zinc-500 leading-none">PORTFOLIO</div><div className="text-sm font-mono text-zinc-200 leading-none mt-0.5">TERMINAL</div></div>
-  </div>
-);
+    WICHTIG: Antworte ausschließlich mit reinem JSON, keine Erklärungen, kein Markdown, keine Code-Fences. Beginne direkt mit { und ende mit }.`;
 
-const StatCard = ({ label, value, sub, accent = 'emerald' }) => {
-  const colors = { emerald: 'text-emerald-400 border-emerald-500/30', amber: 'text-amber-400 border-amber-500/30', red: 'text-red-400 border-red-500/30', zinc: 'text-zinc-300 border-zinc-700' };
-  return <div className={`border ${colors[accent]} bg-zinc-950/50 p-4`}><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">{label}</div><div className={`text-2xl font-mono mt-1 ${colors[accent].split(' ')[0]}`}>{value}</div>{sub && <div className="text-xs text-zinc-500 mt-1 font-mono">{sub}</div>}</div>;
-};
+    // ============================================================
+    // 6. CLAUDE API – KOMMUNIKATION ÜBER DEN WORKER-PROXY
+    // ============================================================
+    // Da die Claude-API keine direkten Browser-Anfragen erlaubt (CORS), nutzen wir
+    // einen Cloudflare-Worker als Proxy. Dieser Worker hat die Aufgabe, die Anfrage
+    // an die echte Claude-API weiterzuleiten und den API-Key sicher zu halten.
+    
+    // Bildkomprimierung: Verkleinert große Screenshots auf max. 1568px Kantenlänge,
+    // wandelt sie in JPEG (Qualität 85%) um und gibt Base64 zurück.
+    const compressImage = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width, height = img.height;
+          const maxDim = 1568;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) { height = Math.round((height * maxDim) / width); width = maxDim; }
+            else { width = Math.round((width * maxDim) / height); height = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+        };
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
 
-const ConvictionBar = ({ value }) => {
-  if (value == null) return null;
-  const color = value >= 90 ? 'bg-emerald-400' : value >= 70 ? 'bg-emerald-500' : value >= 60 ? 'bg-amber-500' : 'bg-zinc-500';
-  return <div className="flex items-center gap-2"><div className="flex-1 h-1 bg-zinc-800 overflow-hidden"><div className={`h-full ${color}`} style={{ width: `${value}%` }} /></div><span className="text-xs font-mono text-zinc-400">{value}%</span></div>;
-};
-
-// ============================================================
-// UPLOAD MODAL (NUR Screenshot/Batch oder Manuell)
-// ============================================================
-const Field = ({ label, value, onChange, type = 'number' }) => (
-  <div><div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono mb-1">{label}</div><input type={type} step="any" value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none" /></div>
-);
-
-const UploadModal = ({ open, onClose, onSave, workerUrl, modelName }) => {
-  const [mode, setMode] = useState(null);
-  const [pasteText, setPasteText] = useState('');
-  const [editedData, setEditedData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [diagnosis, setDiagnosis] = useState('');
-  const [batchMode, setBatchMode] = useState(false);
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentFile: '' });
-  const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) {
-      setMode(null);
-      setPasteText('');
-      setEditedData(null);
-      setError(null);
-      setDiagnosis('');
-      setBatchMode(false);
-      setBatchProgress({ current: 0, total: 0, currentFile: '' });
-    }
-  }, [open]);
-
-  const extractSingleFile = async (file) => {
-    setDiagnosis(`Komprimiere ${file.name}...`);
-    const img = await compressImage(file);
-    setDiagnosis(`Sende ${file.name} an Claude...`);
-    const result = await callClaudeVisionViaProxy(workerUrl, modelName, img);
-    const positions = Array.isArray(result?.positions) ? result.positions : [];
-    if (positions.length === 0) throw new Error(`Keine Positionen in ${file.name} erkannt.`);
-    return positions;
-  };
-
-  const handleFileSelect = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    if (!batchMode && files.length > 1) {
-      const useBatch = confirm('Mehrere Dateien ausgewählt. Batch-Modus (zusammenführen) verwenden?');
-      if (!useBatch) {
-        await runSingleExtraction(files[0]);
-        return;
-      } else {
-        setBatchMode(true);
-      }
-    }
-    if (batchMode || files.length > 1) {
-      await runBatchExtraction(files);
-    } else {
-      await runSingleExtraction(files[0]);
-    }
-  };
-
-  const runSingleExtraction = async (file) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const positions = await extractSingleFile(file);
-      setEditedData({ positions });
-      setMode('review');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runBatchExtraction = async (files) => {
-    setLoading(true);
-    setError(null);
-    const allPositionsArrays = [];
-    const errors = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setBatchProgress({ current: i+1, total: files.length, currentFile: file.name });
-      try {
-        const positions = await extractSingleFile(file);
-        allPositionsArrays.push(positions);
-      } catch (err) {
-        errors.push(`${file.name}: ${err.message}`);
-      }
-    }
-    if (allPositionsArrays.length === 0) {
-      setError('Keine Datei konnte extrahiert werden.');
-      setLoading(false);
-      return;
-    }
-    const merged = mergeMultiplePositionLists(allPositionsArrays);
-    if (errors.length) alert('Fehler bei:\n' + errors.join('\n'));
-    setEditedData({ positions: merged });
-    setMode('review');
-    setLoading(false);
-  };
-
-  const runPasteExtraction = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (!pasteText.trim()) throw new Error('Kein Text eingegeben.');
-      const result = await callClaudeTextViaProxy(workerUrl, modelName, pasteText);
-      const positions = Array.isArray(result?.positions) ? result.positions : [];
-      if (positions.length === 0) throw new Error('Keine Positionen erkannt.');
-      setEditedData({ positions });
-      setMode('review');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleManualEntry = () => {
-    setEditedData({ positions: [{ asset: '', menge: 0, einstand: 0, kurs: 0, wertCHF: 0, plPct: 0 }] });
-    setMode('review');
-  };
-
-  const updateField = (idx, key, value) => {
-    const copy = { ...editedData };
-    copy.positions[idx][key] = key === 'asset' ? value : parseFloat(value) || 0;
-    setEditedData(copy);
-  };
-
-  const handleSave = () => {
-    onSave(editedData.positions);
-    onClose();
-  };
-
-  if (!open) return null;
-
-  // Modus-Auswahl
-  if (mode === null) {
-    return (
-      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-        <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full">
-          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
-            <div className="font-mono text-sm text-emerald-400">// UPDATE</div>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
-          </div>
-          <div className="p-6">
-            <h2 className="text-lg font-mono text-zinc-100 mb-4">Daten hinzufügen</h2>
-            <div className="space-y-3">
-              <button onClick={() => setMode('screenshot')} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
-                <div className="font-mono text-sm text-emerald-400">📸 Screenshot(s) hochladen</div>
-                <div className="text-xs text-zinc-500 mt-1">Einzelnes Bild oder mehrere (Batch) – automatische Erkennung</div>
-              </button>
-              <button onClick={handleManualEntry} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
-                <div className="font-mono text-sm text-emerald-400">✏️ Manuell eintragen</div>
-                <div className="text-xs text-zinc-500 mt-1">Positionen selbst eingeben (ohne KI)</div>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'screenshot') {
-    return (
-      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-        <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
-            <div className="font-mono text-sm text-emerald-400">// SCREENSHOT UPLOAD</div>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
-          </div>
-          <div className="p-6">
-            <label className="flex items-center gap-2 mb-4 cursor-pointer">
-              <input type="checkbox" checked={batchMode} onChange={(e) => setBatchMode(e.target.checked)} className="w-4 h-4" />
-              <span className="text-xs font-mono text-zinc-300">Batch-Modus (mehrere Screenshots zusammenführen)</span>
-            </label>
-            <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/30 p-12 text-center cursor-pointer transition">
-              <Upload className="mx-auto text-zinc-600 mb-3" size={32} />
-              <div className="text-sm text-zinc-300 font-mono">{batchMode ? 'Mehrere Bilder auswählen' : 'Bild auswählen'}</div>
-              <div className="text-xs text-zinc-500 mt-1">{batchMode ? 'Mehrere Dateien möglich, werden zusammengeführt' : 'PNG, JPG'}</div>
-            </div>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple={batchMode} onChange={handleFileSelect} className="hidden" />
-            <div className="mt-4 flex justify-between">
-              <button onClick={() => setMode(null)} className="text-xs text-zinc-500 hover:text-zinc-300">← Zurück</button>
-              <button onClick={() => setMode('manual')} className="text-xs text-emerald-400">Manuell →</button>
-            </div>
-            {loading && (
-              <div className="mt-6 text-center">
-                <Loader2 className="mx-auto text-emerald-400 animate-spin mb-2" size={24} />
-                <div className="text-xs text-zinc-500">{diagnosis}</div>
-                {batchProgress.total > 0 && <div className="text-xs text-zinc-600 mt-1">Datei {batchProgress.current} / {batchProgress.total}</div>}
-              </div>
-            )}
-            {error && <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 text-xs text-red-400">{error}<button onClick={() => setMode('manual')} className="block mt-2 text-emerald-400">→ Manuell eintragen</button></div>}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'review' && editedData) {
-    return (
-      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-        <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="flex items-center justify-between border-b border-zinc-800 p-4">
-            <div className="font-mono text-sm text-emerald-400">// WERTE PRÜFEN</div>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
-          </div>
-          <div className="p-6">
-            <h2 className="text-lg font-mono text-zinc-100 mb-1">Positionen prüfen</h2>
-            <p className="text-xs text-zinc-500 mb-4 font-mono">→ Editierbar, dann speichern</p>
-            <div className="space-y-3 mb-6">
-              {editedData.positions.map((pos, idx) => (
-                <div key={idx} className="border border-zinc-800 bg-zinc-900/50 p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Asset" value={pos.asset} onChange={(v) => updateField(idx, 'asset', v)} type="text" />
-                    <Field label="Menge" value={pos.menge} onChange={(v) => updateField(idx, 'menge', v)} />
-                    <Field label="Einstand" value={pos.einstand} onChange={(v) => updateField(idx, 'einstand', v)} />
-                    <Field label="Kurs" value={pos.kurs} onChange={(v) => updateField(idx, 'kurs', v)} />
-                    <Field label="Wert CHF" value={pos.wertCHF} onChange={(v) => updateField(idx, 'wertCHF', v)} />
-                    <Field label="P/L %" value={pos.plPct} onChange={(v) => updateField(idx, 'plPct', v)} />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleSave} className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-sm py-2"><Check size={14} className="inline mr-1" /> ÜBERNEHMEN</button>
-              <button onClick={onClose} className="px-4 border border-zinc-800 hover:border-zinc-700 text-zinc-400 font-mono text-sm py-2">VERWERFEN</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
-
-// ============================================================
-// TABS (Overview, Crypto, Vorsorge, ETFs, Plan)
-// ============================================================
-const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorgeTotal, targetProgress }) => {
-  const trendData = data.history.total.map(h => ({ date: h.date.slice(5), value: h.wertCHF }));
-  const allocPie = [
-    { name: 'Krypto', value: alloc.crypto, color: '#10b981' },
-    { name: 'ETFs', value: alloc.etf, color: '#06b6d4' },
-    { name: 'Cash', value: alloc.cash, color: '#71717a' }
-  ];
-  return (
-    <div className="space-y-6">
-      <div className="border border-zinc-800 bg-gradient-to-br from-zinc-950 to-zinc-900/50 p-6">
-        <div className="flex items-end justify-between flex-wrap gap-4">
-          <div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-2">// GESAMTVERMÖGEN</div>
-            <div className="text-5xl md:text-6xl font-mono text-zinc-100 leading-none">{fmt(total)} <span className="text-2xl text-zinc-500">CHF</span></div>
-            <div className={`mt-3 flex items-center gap-2 font-mono text-sm ${totalChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {totalChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-              {totalChange >= 0 ? '+' : ''}{fmt(totalChange)} CHF <span className="text-zinc-500">({fmtPct(totalChangePct)} seit letztem Update)</span>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-1">RENTENZIEL</div>
-            <div className="font-mono text-2xl text-emerald-400">{Math.round(targetProgress)}%</div>
-            <div className="text-xs text-zinc-500 font-mono">{fmt(vorsorgeTotal)} / {fmt(data.meta.targetMonthlyRetirement)} CHF/Mo</div>
-          </div>
-        </div>
-        <div className="mt-6 h-32">
-          {trendData.length > 1 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendData}>
-                <defs><linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
-                <XAxis dataKey="date" stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} />
-                <YAxis stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontFamily: 'monospace', fontSize: 11 }} formatter={(v) => fmtChf(v)} />
-                <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : <div className="h-full flex items-center justify-center text-xs text-zinc-600 font-mono">→ Trend-Chart nach 2+ Updates</div>}
-        </div>
-      </div>
-      <div className="grid md:grid-cols-3 gap-4">
-        <div className="border border-zinc-800 bg-zinc-950/50 p-4">
-          <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">ALLOKATION</div>
-          <div className="h-40"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={allocPie} dataKey="value" innerRadius={35} outerRadius={60} paddingAngle={2}>{allocPie.map((e,i)=> <Cell key={i} fill={e.color} stroke="#09090b" />)}</Pie><Tooltip formatter={(v)=>fmtChf(v)} contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontSize: 11 }}/></PieChart></ResponsiveContainer></div>
-          <div className="space-y-1 mt-2">{allocPie.map(a => <div key={a.name} className="flex justify-between text-xs font-mono"><div className="flex gap-2"><div className="w-2 h-2" style={{ background: a.color }} /><span className="text-zinc-400">{a.name}</span></div><span>{fmt(a.value)}</span></div>)}</div>
-        </div>
-        <StatCard label="KRYPTO" value={fmtChf(alloc.crypto)} sub={`${((alloc.crypto/total)*100).toFixed(1)}% Anteil`} />
-        <StatCard label="ETFs" value={fmtChf(alloc.etf)} sub={`${((alloc.etf/total)*100).toFixed(1)}% Anteil`} accent="zinc" />
-      </div>
-      <div className="border border-zinc-800 bg-zinc-950/50 overflow-x-auto">
-        <div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// ALLE POSITIONEN</div></div>
-        <table className="w-full text-sm font-mono"><thead><tr className="text-[10px] uppercase text-zinc-500 border-b border-zinc-800"><th className="text-left px-4 py-2">Asset</th><th className="text-right px-4 py-2">Menge</th><th className="text-right px-4 py-2">Wert CHF</th><th className="text-right px-4 py-2">P/L</th><th className="text-left px-4 py-2 hidden md:table-cell">Plattform</th></tr></thead>
-        <tbody>{Object.entries(data.positions).map(([k,p]) => <tr key={k} className="border-b border-zinc-900 hover:bg-zinc-900/40"><td className="px-4 py-2">{p.label}</td><td className="text-right px-4 py-2 text-xs text-zinc-400">{p.menge ? fmt(p.menge, p.menge<1?5:2) : '–'}</td><td className="text-right px-4 py-2">{fmt(p.wertCHF)}</td><td className={`text-right px-4 py-2 ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</td><td className="px-4 py-2 text-xs text-zinc-500 hidden md:table-cell">{p.platform}</td></tr>)}</tbody></table>
-      </div>
-    </div>
-  );
-};
-
-const CryptoTab = ({ data }) => {
-  const cryptoKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'crypto');
-  return (
-    <div className="space-y-6">
-      <div className="grid md:grid-cols-2 gap-4">
-        {cryptoKeys.map(key => {
-          const p = data.positions[key];
-          const levels = data.sellLevels[key] || [];
-          const reached = (lvl) => p.kurs >= lvl.trigger;
-          const progress = (lvl) => Math.min((p.kurs / lvl.trigger) * 100, 100);
-          return (
-            <div key={key} className="border border-zinc-800 bg-zinc-950/50 p-4">
-              <div className="flex justify-between mb-3">
-                <div><div className="text-xs text-zinc-500">{p.platform}</div><div className="text-xl font-mono text-zinc-100">{p.label}</div></div>
-                <div className="text-right"><div className="text-lg font-mono">{fmt(p.wertCHF)} CHF</div><div className={`text-xs ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</div></div>
-              </div>
-              {p.menge > 0 && <div className="text-xs text-zinc-500 mb-3">{fmt(p.menge, p.menge<1?5:2)} {p.asset} @ Ø {fmt(p.einstand, p.einstand<1?4:2)}</div>}
-              {p.conviction != null && <div className="mb-3"><div className="text-[10px] uppercase text-zinc-500 mb-1">Conviction</div><ConvictionBar value={p.conviction} /></div>}
-              {levels.length > 0 && <div className="mt-4 pt-3 border-t border-zinc-800"><div className="text-[10px] uppercase text-zinc-500 mb-2">// Verkaufsstufen</div><div className="space-y-1">{levels.map((lvl,i)=> (<div key={i}><div className="flex justify-between text-xs"><span className={reached(lvl)?'text-emerald-400':'text-zinc-400'}>@ {fmt(lvl.trigger, lvl.trigger<1?3:0)} → {lvl.action}</span><span>{reached(lvl)?'✓':`${progress(lvl).toFixed(0)}%`}</span></div><div className="h-0.5 bg-zinc-900"><div className={reached(lvl)?'bg-emerald-400':'bg-zinc-700'} style={{ width: `${progress(lvl)}%`, height: '100%' }} /></div></div>))}</div></div>}
-            </div>
-          );
-        })}
-      </div>
-      <div className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-[10px] uppercase text-zinc-500 mb-3">// CATALYSTS</div><div className="space-y-2">{data.catalysts.map((c,i)=> <div key={i} className="flex gap-3 text-sm"><div className="text-xs font-mono text-emerald-400 w-20">{c.date}</div><div className="text-xs font-mono text-zinc-500 w-12">{c.asset}</div><div><div className="text-sm">{c.event}</div><div className="text-xs text-zinc-500">{c.desc}</div></div></div>)}</div></div>
-    </div>
-  );
-};
-
-const VorsorgeTab = ({ data, vorsorgeTotal, targetProgress }) => {
-  const items = Object.entries(data.vorsorge);
-  return (
-    <div className="space-y-6">
-      <div className="border border-zinc-800 bg-zinc-950/50 p-6">
-        <div className="text-[10px] uppercase text-zinc-500 mb-2">// MONATLICHES RENTENEINKOMMEN</div>
-        <div className="flex items-end gap-4 flex-wrap"><div className="text-4xl font-mono text-emerald-400">{fmt(vorsorgeTotal)} <span className="text-xl text-zinc-500">CHF/Mo</span></div><div className="text-sm font-mono">Ziel {fmt(data.meta.targetMonthlyRetirement)} CHF → <span className="text-emerald-400">{Math.round(targetProgress)}%</span></div></div>
-        <div className="mt-6 space-y-3">{items.map(([k,v]) => <div key={k}><div className="flex justify-between text-xs font-mono mb-1"><span>{v.label}</span><span>{fmt(v.monthly)} CHF/Mo</span></div><div className="h-2 bg-zinc-900"><div className="h-full bg-emerald-500/70" style={{ width: `${(v.monthly/vorsorgeTotal)*100}%` }} /></div></div>)}</div>
-      </div>
-      <div className="border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex gap-3"><AlertCircle className="text-amber-400 shrink-0 mt-0.5" size={18} /><div><div className="font-mono text-sm text-amber-400">PKZH-EINKAUFSLÜCKE PRÜFEN</div><div className="text-xs text-zinc-400">Pro 10.000 CHF PK-Einkauf: ~3.500 CHF Steuer gespart.</div><div className="mt-2 text-xs font-mono flex gap-3"><a href="tel:+41444155700" className="text-emerald-400">📞 044 415 57 00</a><a href="mailto:info@pkzh.ch" className="text-emerald-400">✉ info@pkzh.ch</a><a href="https://pkzh.ch" target="_blank" className="text-emerald-400">🌐 pkzh.ch</a></div></div></div></div>
-    </div>
-  );
-};
-
-const EtfsTab = ({ data }) => {
-  const etfKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'etf');
-  return <div className="grid md:grid-cols-2 gap-4">{etfKeys.map(k => <div key={k} className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-xs text-zinc-500">{data.positions[k].platform}</div><div className="text-xl font-mono">{data.positions[k].label}</div><div className="text-3xl font-mono mt-3">{fmt(data.positions[k].wertCHF)} <span className="text-base text-zinc-500">CHF</span></div><div className={`text-xs mt-1 ${data.positions[k].plPct>0?'text-emerald-400':'text-zinc-500'}`}>{data.positions[k].plPct ? fmtPct(data.positions[k].plPct) : '–'}</div></div>)}</div>;
-};
-
-const PlanTab = ({ data, onUpdate }) => {
-  const toggleTodo = (id) => onUpdate({ ...data, todos: data.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) });
-  const monthlyPlan = [{ asset: 'V3AA Sparplan', amount: 1000, platform: 'Swissquote' }, { asset: 'BTC DCA', amount: 300, platform: 'Relai' }, { asset: 'SOL DCA', amount: 250, platform: 'Swissquote' }, { asset: 'RNDR DCA', amount: 50, platform: 'Kraken' }];
-  const total = monthlyPlan.reduce((s,x)=>s+x.amount,0);
-  const sortedTodos = [...data.todos].sort((a,b)=> a.done === b.done ? (a.priority === 'high' ? -1 : a.priority === 'medium' ? -1 : 1) : a.done ? 1 : -1);
-  return (
-    <div className="space-y-6">
-      <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// MONATLICHER INVESTMENT-PLAN</div></div><table className="w-full text-sm font-mono"><tbody>{monthlyPlan.map(m => <tr key={m.asset} className="border-b border-zinc-900"><td className="px-4 py-2">{m.asset}</td><td className="px-4 py-2 text-right">{fmt(m.amount)} CHF</td><td className="px-4 py-2 text-right text-xs text-zinc-500">{m.platform}</td></tr>)}<tr className="bg-zinc-900/40"><td className="px-4 py-2 font-bold text-emerald-400">TOTAL</td><td className="px-4 py-2 text-right font-bold text-emerald-400">{fmt(total)} CHF</td><td/></tr></tbody></table></div>
-      <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// TODOs</div></div><div className="divide-y divide-zinc-900">{sortedTodos.map(t => <div key={t.id} onClick={()=>toggleTodo(t.id)} className="px-4 py-2 flex items-center gap-3 cursor-pointer hover:bg-zinc-900/40"><div className={`w-4 h-4 border ${t.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'} flex items-center justify-center`}>{t.done && <Check size={10} className="text-zinc-950" />}</div><div className={`flex-1 text-xs font-mono ${t.done ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{t.text}</div><div className={`text-[10px] uppercase px-2 py-0.5 ${t.priority === 'high' ? 'text-red-400 border border-red-500/30' : t.priority === 'medium' ? 'text-amber-400 border border-amber-500/30' : 'text-zinc-500 border border-zinc-700'}`}>{t.priority}</div></div>)}</div></div>
-    </div>
-  );
-};
-
-// ============================================================
-// DASHBOARD
-// ============================================================
-const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
-  const [tab, setTab] = useState('overview');
-  const total = calcTotal(data.positions);
-  const alloc = calcAllocation(data.positions);
-  const history = data.history.total || [];
-  const prev = history.length > 1 ? history[history.length-2].wertCHF : total;
-  const totalChange = total - prev;
-  const totalChangePct = prev ? (totalChange/prev)*100 : 0;
-  const vorsorgeTotal = Object.values(data.vorsorge).reduce((s,v)=>s+v.monthly,0);
-  const targetProgress = (vorsorgeTotal / data.meta.targetMonthlyRetirement) * 100;
-  return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-200">
-      <header className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-          <Logo />
-          <div className="flex gap-2">
-            <button onClick={onOpenUpload} className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-3 py-2 flex gap-1 items-center"><Plus size={14} />UPDATE</button>
-            <button onClick={onOpenSettings} className="border border-zinc-800 hover:border-zinc-700 p-2"><Settings size={14} /></button>
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto px-4 flex gap-1 -mb-px overflow-x-auto">
-          {['overview','crypto','vorsorge','etfs','plan'].map(id => <button key={id} onClick={()=>setTab(id)} className={`px-3 py-2 text-xs font-mono border-b-2 whitespace-nowrap ${tab===id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>{id==='overview'?'ÜBERSICHT':id==='crypto'?'KRYPTO':id==='vorsorge'?'VORSORGE':id==='etfs'?'ETFs':'PLAN & TODOS'}</button>)}
-        </div>
-      </header>
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        {tab === 'overview' && <OverviewTab data={data} total={total} totalChange={totalChange} totalChangePct={totalChangePct} alloc={alloc} vorsorgeTotal={vorsorgeTotal} targetProgress={targetProgress} />}
-        {tab === 'crypto' && <CryptoTab data={data} />}
-        {tab === 'vorsorge' && <VorsorgeTab data={data} vorsorgeTotal={vorsorgeTotal} targetProgress={targetProgress} />}
-        {tab === 'etfs' && <EtfsTab data={data} />}
-        {tab === 'plan' && <PlanTab data={data} onUpdate={onUpdate} />}
-      </main>
-    </div>
-  );
-};
-
-// ============================================================
-// SETTINGS MODAL
-// ============================================================
-const SettingsModal = ({ open, onClose, data, onUpdate, workerUrl, onWorkerUrlChange, modelName, onModelNameChange }) => {
-  const [editUrl, setEditUrl] = useState(workerUrl);
-  const [showUrl, setShowUrl] = useState(false);
-  const [editModel, setEditModel] = useState(modelName);
-  const [testResult, setTestResult] = useState(null);
-  const [testing, setTesting] = useState(false);
-  useEffect(() => { setEditUrl(workerUrl); setEditModel(modelName); }, [workerUrl, modelName, open]);
-  const runTest = async () => {
-    setTesting(true);
-    try {
-      const res = await fetch(editUrl, {
+    // Zentrale Funktion, die den Worker anspricht und die Antwort parst.
+    const callClaudeProxy = async (workerUrl, modelName, systemPrompt, userContentParts) => {
+      const response = await fetch(workerUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: editModel, system: 'Antworte mit PONG', messages: [{ role: 'user', content: [{ type: 'text', text: 'PONG' }] }], max_tokens: 10 })
+        body: JSON.stringify({
+          model: modelName,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContentParts }],
+          max_tokens: 4096,
+          temperature: 0,
+        }),
       });
-      const txt = await res.text();
-      setTestResult({ ok: res.ok, log: `Status ${res.status}\n${txt.slice(0,300)}` });
-    } catch(e) { setTestResult({ ok: false, log: e.message }); }
-    setTesting(false);
-  };
-  if (!open) return null;
-  const handleExport = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})); a.download = `portfolio-${data.meta.lastUpdate}.json`; a.click(); };
-  const handleImport = (e) => { const f = e.target.files[0]; if(f){ const r = new FileReader(); r.onload = ev => { try { onUpdate(JSON.parse(ev.target.result)); onClose(); } catch{ alert('Fehler beim Import'); } }; r.readAsText(f); } };
-  const handleReset = () => { if(confirm('Zurücksetzen auf Seed-Daten?')){ onUpdate(SEED_DATA); onClose(); } };
-  return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex justify-center items-center p-4">
-      <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full max-h-[90vh] overflow-auto">
-        <div className="flex justify-between items-center border-b border-zinc-800 p-4"><div className="font-mono text-sm text-emerald-400">// SETTINGS</div><button onClick={onClose}><X size={18} /></button></div>
-        <div className="p-6 space-y-6">
-          <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Proxy-URL</div><div className="relative"><input type={showUrl?'text':'password'} value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 pr-10 text-sm font-mono" /><button onClick={()=>setShowUrl(!showUrl)} className="absolute right-2 top-1/2 -translate-y-1/2">{showUrl?<EyeOff size={16}/>:<Eye size={16}/>}</button></div><button onClick={()=>onWorkerUrlChange(editUrl)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
-          <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Modell</div><input type="text" value={editModel} onChange={e=>setEditModel(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm font-mono" /><button onClick={()=>onModelNameChange(editModel)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
-          <div><button onClick={runTest} disabled={testing} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2">{testing?<Loader2 className="animate-spin" size={14}/>:null}{testing?'TESTE...':'PROXY VERBINDUNG TESTEN'}</button>{testResult && <div className={`mt-2 p-2 border text-[10px] font-mono ${testResult.ok?'border-emerald-500/30 text-emerald-300':'border-red-500/30 text-red-300'}`}>{testResult.log}</div>}</div>
-          <div className="border-t border-zinc-800 pt-6"><div className="text-xs font-mono text-zinc-400 mb-2">Daten</div><div className="space-y-2"><button onClick={handleExport} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2"><Download size={14}/>JSON EXPORTIEREN</button><label className="block w-full border border-zinc-800 py-2 text-xs font-mono text-center cursor-pointer"><Upload size={14} className="inline mr-1"/>JSON IMPORTIEREN<input type="file" accept=".json" onChange={handleImport} className="hidden"/></label><button onClick={handleReset} className="w-full border border-red-500/30 text-red-400 py-2 text-xs font-mono"><Trash2 size={14} className="inline mr-1"/>ZURÜCKSETZEN</button></div></div>
-        </div>
+      const raw = await response.text();
+      if (!response.ok) throw new Error(`Proxy-Fehler (${response.status}): ${raw.slice(0,400)}`);
+      let data;
+      try { data = JSON.parse(raw); } catch(e) { throw new Error(`Proxy antwortete kein JSON: ${raw.slice(0,300)}`); }
+      const textBlock = data.content?.find(block => block.type === 'text');
+      if (!textBlock?.text) throw new Error('Keine Textantwort vom Proxy');
+      const cleaned = textBlock.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      try { return JSON.parse(cleaned); } catch(e) { throw new Error(`JSON-Parse-Fehler: ${cleaned.slice(0,300)}`); }
+    };
+
+    // Vision: Bild an Claude senden
+    const callClaudeVisionViaProxy = async (workerUrl, modelName, { base64, mimeType }) => {
+      return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+        { type: 'text', text: 'Extrahiere alle Positionen aus diesem Screenshot gemäss Systemanweisung. Gib nur JSON zurück.' }
+      ]);
+    };
+
+    // Text: kopierten Text an Claude senden
+    const callClaudeTextViaProxy = async (workerUrl, modelName, rawText) => {
+      return callClaudeProxy(workerUrl, modelName, UNIVERSAL_PROMPT, [{ type: 'text', text: `--- DATEN ---\n${rawText}\n\nExtrahiere Positionen. Gib nur JSON.` }]);
+    };
+
+    // ============================================================
+    // 7. HILFSFUNKTIONEN FÜR DARSTELLUNG UND BERECHNUNGEN
+    // ============================================================
+    // Formatierung von Zahlen (CHF, Prozent) mit deutschem Zahlenstil
+    const fmt = (n, decimals = 0) => n == null || isNaN(n) ? '–' : new Intl.NumberFormat('de-CH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+    const fmtChf = (n) => `${fmt(n, 0)} CHF`;
+    const fmtPct = (n) => `${n > 0 ? '+' : ''}${fmt(n, 2)}%`;
+
+    // Gesamtwert aller Positionen berechnen
+    const calcTotal = (positions) => Object.values(positions).reduce((s, p) => s + (p.wertCHF || 0), 0);
+
+    // Allokation nach Kategorien (crypto, etf, cash)
+    const calcAllocation = (positions) => {
+      const cats = { crypto: 0, etf: 0, cash: 0 };
+      Object.values(positions).forEach(p => { if (cats[p.category] !== undefined) cats[p.category] += p.wertCHF || 0; });
+      return cats;
+    };
+
+    // Merge-Funktion für Batch-Uploads: fasst mehrere Positions-Arrays zusammen,
+    // addiert Mengen und Werte gleicher Assets, berechnet neuen Durchschnittseinstand.
+    const mergeMultiplePositionLists = (allPositionsArrays) => {
+      const mergedMap = new Map();
+      for (const positionArray of allPositionsArrays) {
+        for (const pos of positionArray) {
+          const asset = pos.asset;
+          if (!asset) continue;
+          if (!mergedMap.has(asset)) {
+            mergedMap.set(asset, { ...pos });
+          } else {
+            const existing = mergedMap.get(asset);
+            const newMenge = existing.menge + (pos.menge || 0);
+            const newWert = existing.wertCHF + (pos.wertCHF || 0);
+            const newEinstand = newMenge > 0 ? newWert / newMenge : 0;
+            const newKurs = newMenge > 0 ? (existing.kurs * existing.menge + (pos.kurs || 0) * (pos.menge || 0)) / newMenge : 0;
+            mergedMap.set(asset, {
+              asset: asset,
+              menge: newMenge,
+              wertCHF: newWert,
+              einstand: newEinstand,
+              kurs: newKurs,
+              plPct: 0,
+            });
+          }
+        }
+      }
+      return Array.from(mergedMap.values());
+    };
+
+    // ============================================================
+    // 8. WIEDERVERWENDBARE UI-KOMPONENTEN
+    // ============================================================
+    // Logo, StatCard, ConvictionBar – einfache Bausteine ohne eigene Logik.
+    const Logo = () => (
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center"><div className="w-3 h-3 bg-emerald-400" /></div>
+        <div><div className="text-xs font-mono text-zinc-500 leading-none">PORTFOLIO</div><div className="text-sm font-mono text-zinc-200 leading-none mt-0.5">TERMINAL</div></div>
       </div>
-    </div>
-  );
-};
+    );
 
-// ============================================================
-// APP
-// ============================================================
-function App() {
-  const [data, setData] = useState(null);
-  const [workerUrl, setWorkerUrl] = useState(DEFAULT_WORKER_URL);
-  const [modelName, setModelName] = useState(DEFAULT_MODEL);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [booted, setBooted] = useState(false);
+    const StatCard = ({ label, value, sub, accent = 'emerald' }) => {
+      const colors = { emerald: 'text-emerald-400 border-emerald-500/30', amber: 'text-amber-400 border-amber-500/30', red: 'text-red-400 border-red-500/30', zinc: 'text-zinc-300 border-zinc-700' };
+      return <div className={`border ${colors[accent]} bg-zinc-950/50 p-4`}><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">{label}</div><div className={`text-2xl font-mono mt-1 ${colors[accent].split(' ')[0]}`}>{value}</div>{sub && <div className="text-xs text-zinc-500 mt-1 font-mono">{sub}</div>}</div>;
+    };
 
-  useEffect(() => {
-    const stored = loadData();
-    const url = loadWorkerUrl();
-    const model = loadModelName();
-    setData(stored || SEED_DATA);
-    setWorkerUrl(url);
-    setModelName(model);
-    setBooted(true);
-  }, []);
+    const ConvictionBar = ({ value }) => {
+      if (value == null) return null;
+      const color = value >= 90 ? 'bg-emerald-400' : value >= 70 ? 'bg-emerald-500' : value >= 60 ? 'bg-amber-500' : 'bg-zinc-500';
+      return <div className="flex items-center gap-2"><div className="flex-1 h-1 bg-zinc-800 overflow-hidden"><div className={`h-full ${color}`} style={{ width: `${value}%` }} /></div><span className="text-xs font-mono text-zinc-400">{value}%</span></div>;
+    };
 
-  useEffect(() => { if (data && booted) saveData(data); }, [data, booted]);
+    // ============================================================
+    // 9. UPLOAD MODAL – DAS HERZ DER DATENEINGABE
+    // ============================================================
+    // Dieses Modal wird geöffnet, wenn der Benutzer auf "UPDATE" klickt.
+    // Es bietet zwei Hauptpfade: Screenshot(s) (mit Batch-Option) oder manuelle Eingabe.
+    // Der gesamte Ablauf wird hier gesteuert: Bildkomprimierung, API-Aufruf,
+    // Merge, Review und abschließendes Speichern.
+    const Field = ({ label, value, onChange, type = 'number' }) => (
+      <div><div className="text-[10px] uppercase tracking-wider text-zinc-500 font-mono mb-1">{label}</div><input type={type} step="any" value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm font-mono text-zinc-200 focus:border-emerald-500 focus:outline-none" /></div>
+    );
 
-  const handleSaveExtracted = (positions) => {
-    const newData = JSON.parse(JSON.stringify(data));
-    const today = new Date().toISOString().slice(0,10);
-    for (const p of positions) {
-      if (!p.asset) continue;
-      const ticker = p.asset.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-      const keyMap = { 'BTC':'btc','ETH':'eth','SOL':'sol','KAS':'kas','RNDR':'rndr','RENDER':'rndr','V3AA':'v3aaCH','VIAC':'viac','ETF-DE':'etfDE','CASH':'cash' };
-      const key = keyMap[ticker];
-      if (key && newData.positions[key]) {
-        Object.keys(p).forEach(f => { if (f !== 'asset' && p[f] != null) newData.positions[key][f] = p[f]; });
-        if (!newData.history[key]) newData.history[key] = [];
-        newData.history[key].push({ date: today, wertCHF: newData.positions[key].wertCHF });
-      } else if (ticker === 'PKZH' && p.monthly) newData.vorsorge.pkzh.monthly = p.monthly;
-      else if (ticker === 'AHV' && p.monthly) newData.vorsorge.ahv.monthly = p.monthly;
-      else if (ticker === 'AERZTE' && p.monthly) newData.vorsorge.aerzte.monthly = p.monthly;
+    const UploadModal = ({ open, onClose, onSave, workerUrl, modelName }) => {
+      const [mode, setMode] = useState(null); // null, 'screenshot', 'review'
+      const [pasteText, setPasteText] = useState('');
+      const [editedData, setEditedData] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const [diagnosis, setDiagnosis] = useState('');
+      const [batchMode, setBatchMode] = useState(false);
+      const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentFile: '' });
+      const fileInputRef = useRef(null);
+
+      // Modal zurücksetzen, wenn es geschlossen wird
+      useEffect(() => {
+        if (!open) {
+          setMode(null);
+          setPasteText('');
+          setEditedData(null);
+          setError(null);
+          setDiagnosis('');
+          setBatchMode(false);
+          setBatchProgress({ current: 0, total: 0, currentFile: '' });
+        }
+      }, [open]);
+
+      // Extrahiert eine einzelne Datei (wiederverwendbar für Batch)
+      const extractSingleFile = async (file) => {
+        setDiagnosis(`Komprimiere ${file.name}...`);
+        const img = await compressImage(file);
+        setDiagnosis(`Sende ${file.name} an Claude...`);
+        const result = await callClaudeVisionViaProxy(workerUrl, modelName, img);
+        const positions = Array.isArray(result?.positions) ? result.positions : [];
+        if (positions.length === 0) throw new Error(`Keine Positionen in ${file.name} erkannt.`);
+        return positions;
+      };
+
+      // Einzeldatei verarbeiten
+      const runSingleExtraction = async (file) => {
+        setLoading(true);
+        setError(null);
+        try {
+          const positions = await extractSingleFile(file);
+          setEditedData({ positions });
+          setMode('review');
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Batch-Verarbeitung mehrerer Dateien mit Fortschritt
+      const runBatchExtraction = async (files) => {
+        setLoading(true);
+        setError(null);
+        const allPositionsArrays = [];
+        const errors = [];
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          setBatchProgress({ current: i+1, total: files.length, currentFile: file.name });
+          try {
+            const positions = await extractSingleFile(file);
+            allPositionsArrays.push(positions);
+          } catch (err) {
+            errors.push(`${file.name}: ${err.message}`);
+          }
+        }
+        if (allPositionsArrays.length === 0) {
+          setError('Keine Datei konnte extrahiert werden.');
+          setLoading(false);
+          return;
+        }
+        const merged = mergeMultiplePositionLists(allPositionsArrays);
+        if (errors.length) alert('Fehler bei:\n' + errors.join('\n'));
+        setEditedData({ positions: merged });
+        setMode('review');
+        setLoading(false);
+      };
+
+      // Text-basierte Extraktion (kopierter Text)
+      const runPasteExtraction = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          if (!pasteText.trim()) throw new Error('Kein Text eingegeben.');
+          const result = await callClaudeTextViaProxy(workerUrl, modelName, pasteText);
+          const positions = Array.isArray(result?.positions) ? result.positions : [];
+          if (positions.length === 0) throw new Error('Keine Positionen erkannt.');
+          setEditedData({ positions });
+          setMode('review');
+        } catch (e) {
+          setError(e.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Manuelle Eingabe starten (leere Vorlage)
+      const handleManualEntry = () => {
+        setEditedData({ positions: [{ asset: '', menge: 0, einstand: 0, kurs: 0, wertCHF: 0, plPct: 0 }] });
+        setMode('review');
+      };
+
+      // Felder in der Review-Ansicht aktualisieren
+      const updateField = (idx, key, value) => {
+        const copy = { ...editedData };
+        copy.positions[idx][key] = key === 'asset' ? value : parseFloat(value) || 0;
+        setEditedData(copy);
+      };
+
+      // Speichern und an die Haupt-App zurückgeben
+      const handleSave = () => {
+        onSave(editedData.positions);
+        onClose();
+      };
+
+      // Wenn Modal nicht geöffnet: nichts rendern
+      if (!open) return null;
+
+      // Schritt 1: Wahl zwischen Screenshot(s) und Manuell
+      if (mode === null) {
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full">
+              <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+                <div className="font-mono text-sm text-emerald-400">// UPDATE</div>
+                <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+              </div>
+              <div className="p-6">
+                <h2 className="text-lg font-mono text-zinc-100 mb-4">Daten hinzufügen</h2>
+                <div className="space-y-3">
+                  <button onClick={() => setMode('screenshot')} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
+                    <div className="font-mono text-sm text-emerald-400">📸 Screenshot(s) hochladen</div>
+                    <div className="text-xs text-zinc-500 mt-1">Einzelnes Bild oder mehrere (Batch) – automatische Erkennung</div>
+                  </button>
+                  <button onClick={handleManualEntry} className="w-full border border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/50 p-4 text-left transition">
+                    <div className="font-mono text-sm text-emerald-400">✏️ Manuell eintragen</div>
+                    <div className="text-xs text-zinc-500 mt-1">Positionen selbst eingeben (ohne KI)</div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Schritt 2: Screenshot-Upload (mit Batch-Checkbox)
+      if (mode === 'screenshot') {
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+                <div className="font-mono text-sm text-emerald-400">// SCREENSHOT UPLOAD</div>
+                <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+              </div>
+              <div className="p-6">
+                <label className="flex items-center gap-2 mb-4 cursor-pointer">
+                  <input type="checkbox" checked={batchMode} onChange={(e) => setBatchMode(e.target.checked)} className="w-4 h-4" />
+                  <span className="text-xs font-mono text-zinc-300">Batch-Modus (mehrere Screenshots zusammenführen)</span>
+                </label>
+                <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-zinc-800 hover:border-emerald-500/50 bg-zinc-900/30 p-12 text-center cursor-pointer transition">
+                  <Upload className="mx-auto text-zinc-600 mb-3" size={32} />
+                  <div className="text-sm text-zinc-300 font-mono">{batchMode ? 'Mehrere Bilder auswählen' : 'Bild auswählen'}</div>
+                  <div className="text-xs text-zinc-500 mt-1">{batchMode ? 'Mehrere Dateien möglich, werden zusammengeführt' : 'PNG, JPG'}</div>
+                </div>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple={batchMode} onChange={(e) => {
+                  const files = Array.from(e.target.files);
+                  if (files.length === 0) return;
+                  if (!batchMode && files.length > 1) {
+                    if (confirm('Mehrere Dateien ausgewählt. Batch-Modus (zusammenführen) verwenden?')) {
+                      setBatchMode(true);
+                      runBatchExtraction(files);
+                    } else {
+                      runSingleExtraction(files[0]);
+                    }
+                  } else if (batchMode || files.length > 1) {
+                    runBatchExtraction(files);
+                  } else {
+                    runSingleExtraction(files[0]);
+                  }
+                }} className="hidden" />
+                <div className="mt-4 flex justify-between">
+                  <button onClick={() => setMode(null)} className="text-xs text-zinc-500 hover:text-zinc-300">← Zurück</button>
+                  <button onClick={() => setMode('manual')} className="text-xs text-emerald-400">Manuell →</button>
+                </div>
+                {loading && (
+                  <div className="mt-6 text-center">
+                    <Loader2 className="mx-auto text-emerald-400 animate-spin mb-2" size={24} />
+                    <div className="text-xs text-zinc-500">{diagnosis}</div>
+                    {batchProgress.total > 0 && <div className="text-xs text-zinc-600 mt-1">Datei {batchProgress.current} / {batchProgress.total}</div>}
+                  </div>
+                )}
+                {error && <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 text-xs text-red-400">{error}<button onClick={() => setMode('manual')} className="block mt-2 text-emerald-400">→ Manuell eintragen</button></div>}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Schritt 3: Review der extrahierten oder manuell eingegebenen Positionen
+      if (mode === 'review' && editedData) {
+        return (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-zinc-800 p-4">
+                <div className="font-mono text-sm text-emerald-400">// WERTE PRÜFEN</div>
+                <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18} /></button>
+              </div>
+              <div className="p-6">
+                <h2 className="text-lg font-mono text-zinc-100 mb-1">Positionen prüfen</h2>
+                <p className="text-xs text-zinc-500 mb-4 font-mono">→ Editierbar, dann speichern</p>
+                <div className="space-y-3 mb-6">
+                  {editedData.positions.map((pos, idx) => (
+                    <div key={idx} className="border border-zinc-800 bg-zinc-900/50 p-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Asset" value={pos.asset} onChange={(v) => updateField(idx, 'asset', v)} type="text" />
+                        <Field label="Menge" value={pos.menge} onChange={(v) => updateField(idx, 'menge', v)} />
+                        <Field label="Einstand" value={pos.einstand} onChange={(v) => updateField(idx, 'einstand', v)} />
+                        <Field label="Kurs" value={pos.kurs} onChange={(v) => updateField(idx, 'kurs', v)} />
+                        <Field label="Wert CHF" value={pos.wertCHF} onChange={(v) => updateField(idx, 'wertCHF', v)} />
+                        <Field label="P/L %" value={pos.plPct} onChange={(v) => updateField(idx, 'plPct', v)} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSave} className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-sm py-2"><Check size={14} className="inline mr-1" /> ÜBERNEHMEN</button>
+                  <button onClick={onClose} className="px-4 border border-zinc-800 hover:border-zinc-700 text-zinc-400 font-mono text-sm py-2">VERWERFEN</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      return null;
+    };
+
+    // ============================================================
+    // 10. TABS FÜR DIE HAUPTANSICHT
+    // ============================================================
+    // Jeder Tab ist eine eigene Komponente: Overview, Crypto, Vorsorge, ETFs, Plan.
+    // Sie erhalten die Daten über Props und rendern die entsprechenden Diagramme,
+    // Tabellen und Karten.
+    const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorgeTotal, targetProgress }) => {
+      const trendData = data.history.total.map(h => ({ date: h.date.slice(5), value: h.wertCHF }));
+      const allocPie = [
+        { name: 'Krypto', value: alloc.crypto, color: '#10b981' },
+        { name: 'ETFs', value: alloc.etf, color: '#06b6d4' },
+        { name: 'Cash', value: alloc.cash, color: '#71717a' }
+      ];
+      return (
+        <div className="space-y-6">
+          <div className="border border-zinc-800 bg-gradient-to-br from-zinc-950 to-zinc-900/50 p-6">
+            <div className="flex items-end justify-between flex-wrap gap-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-2">// GESAMTVERMÖGEN</div>
+                <div className="text-5xl md:text-6xl font-mono text-zinc-100 leading-none">{fmt(total)} <span className="text-2xl text-zinc-500">CHF</span></div>
+                <div className={`mt-3 flex items-center gap-2 font-mono text-sm ${totalChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {totalChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  {totalChange >= 0 ? '+' : ''}{fmt(totalChange)} CHF <span className="text-zinc-500">({fmtPct(totalChangePct)} seit letztem Update)</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-1">RENTENZIEL</div>
+                <div className="font-mono text-2xl text-emerald-400">{Math.round(targetProgress)}%</div>
+                <div className="text-xs text-zinc-500 font-mono">{fmt(vorsorgeTotal)} / {fmt(data.meta.targetMonthlyRetirement)} CHF/Mo</div>
+              </div>
+            </div>
+            <div className="mt-6 h-32">
+              {trendData.length > 1 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData}>
+                    <defs><linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient></defs>
+                    <XAxis dataKey="date" stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} />
+                    <YAxis stroke="#52525b" fontSize={10} tick={{ fontFamily: 'monospace' }} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontFamily: 'monospace', fontSize: 11 }} formatter={(v) => fmtChf(v)} />
+                    <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : <div className="h-full flex items-center justify-center text-xs text-zinc-600 font-mono">→ Trend-Chart nach 2+ Updates</div>}
+            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="border border-zinc-800 bg-zinc-950/50 p-4">
+              <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">ALLOKATION</div>
+              <div className="h-40"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={allocPie} dataKey="value" innerRadius={35} outerRadius={60} paddingAngle={2}>{allocPie.map((e,i)=> <Cell key={i} fill={e.color} stroke="#09090b" />)}</Pie><Tooltip formatter={(v)=>fmtChf(v)} contentStyle={{ background: '#09090b', border: '1px solid #27272a', fontSize: 11 }}/></PieChart></ResponsiveContainer></div>
+              <div className="space-y-1 mt-2">{allocPie.map(a => <div key={a.name} className="flex justify-between text-xs font-mono"><div className="flex gap-2"><div className="w-2 h-2" style={{ background: a.color }} /><span className="text-zinc-400">{a.name}</span></div><span>{fmt(a.value)}</span></div>)}</div>
+            </div>
+            <StatCard label="KRYPTO" value={fmtChf(alloc.crypto)} sub={`${((alloc.crypto/total)*100).toFixed(1)}% Anteil`} />
+            <StatCard label="ETFs" value={fmtChf(alloc.etf)} sub={`${((alloc.etf/total)*100).toFixed(1)}% Anteil`} accent="zinc" />
+          </div>
+          <div className="border border-zinc-800 bg-zinc-950/50 overflow-x-auto">
+            <div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// ALLE POSITIONEN</div></div>
+            <table className="w-full text-sm font-mono"><thead><tr className="text-[10px] uppercase text-zinc-500 border-b border-zinc-800"><th className="text-left px-4 py-2">Asset</th><th className="text-right px-4 py-2">Menge</th><th className="text-right px-4 py-2">Wert CHF</th><th className="text-right px-4 py-2">P/L</th><th className="text-left px-4 py-2 hidden md:table-cell">Plattform</th></tr></thead>
+            <tbody>{Object.entries(data.positions).map(([k,p]) => <tr key={k} className="border-b border-zinc-900 hover:bg-zinc-900/40"><td className="px-4 py-2">{p.label}</td><td className="text-right px-4 py-2 text-xs text-zinc-400">{p.menge ? fmt(p.menge, p.menge<1?5:2) : '–'}</td><td className="text-right px-4 py-2">{fmt(p.wertCHF)}</td><td className={`text-right px-4 py-2 ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</td><td className="px-4 py-2 text-xs text-zinc-500 hidden md:table-cell">{p.platform}</td></tr>)}</tbody></table>
+          </div>
+        </div>
+      );
+    };
+
+    const CryptoTab = ({ data }) => {
+      const cryptoKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'crypto');
+      return (
+        <div className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-4">
+            {cryptoKeys.map(key => {
+              const p = data.positions[key];
+              const levels = data.sellLevels[key] || [];
+              return (
+                <div key={key} className="border border-zinc-800 bg-zinc-950/50 p-4">
+                  <div className="flex justify-between mb-3">
+                    <div><div className="text-xs text-zinc-500">{p.platform}</div><div className="text-xl font-mono text-zinc-100">{p.label}</div></div>
+                    <div className="text-right"><div className="text-lg font-mono">{fmt(p.wertCHF)} CHF</div><div className={`text-xs ${p.plPct>0?'text-emerald-400':p.plPct<0?'text-red-400':'text-zinc-500'}`}>{p.plPct ? fmtPct(p.plPct) : '–'}</div></div>
+                  </div>
+                  {p.menge > 0 && <div className="text-xs text-zinc-500 mb-3">{fmt(p.menge, p.menge<1?5:2)} {p.asset} @ Ø {fmt(p.einstand, p.einstand<1?4:2)}</div>}
+                  {p.conviction != null && <div className="mb-3"><div className="text-[10px] uppercase text-zinc-500 mb-1">Conviction</div><ConvictionBar value={p.conviction} /></div>}
+                  {levels.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-zinc-800">
+                      <div className="text-[10px] uppercase text-zinc-500 mb-2">// Verkaufsstufen</div>
+                      <div className="space-y-1">
+                        {levels.map((lvl,i) => {
+                          const reached = p.kurs >= lvl.trigger;
+                          const progress = Math.min((p.kurs / lvl.trigger) * 100, 100);
+                          return (
+                            <div key={i}>
+                              <div className="flex justify-between text-xs">
+                                <span className={reached?'text-emerald-400':'text-zinc-400'}>@ {fmt(lvl.trigger, lvl.trigger<1?3:0)} → {lvl.action}</span>
+                                <span>{reached?'✓':`${progress.toFixed(0)}%`}</span>
+                              </div>
+                              <div className="h-0.5 bg-zinc-900"><div className={reached?'bg-emerald-400':'bg-zinc-700'} style={{ width: `${progress}%`, height: '100%' }} /></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-[10px] uppercase text-zinc-500 mb-3">// CATALYSTS</div><div className="space-y-2">{data.catalysts.map((c,i)=> <div key={i} className="flex gap-3 text-sm"><div className="text-xs font-mono text-emerald-400 w-20">{c.date}</div><div className="text-xs font-mono text-zinc-500 w-12">{c.asset}</div><div><div className="text-sm">{c.event}</div><div className="text-xs text-zinc-500">{c.desc}</div></div></div>)}</div></div>
+        </div>
+      );
+    };
+
+    const VorsorgeTab = ({ data, vorsorgeTotal, targetProgress }) => {
+      const items = Object.entries(data.vorsorge);
+      return (
+        <div className="space-y-6">
+          <div className="border border-zinc-800 bg-zinc-950/50 p-6">
+            <div className="text-[10px] uppercase text-zinc-500 mb-2">// MONATLICHES RENTENEINKOMMEN</div>
+            <div className="flex items-end gap-4 flex-wrap"><div className="text-4xl font-mono text-emerald-400">{fmt(vorsorgeTotal)} <span className="text-xl text-zinc-500">CHF/Mo</span></div><div className="text-sm font-mono">Ziel {fmt(data.meta.targetMonthlyRetirement)} CHF → <span className="text-emerald-400">{Math.round(targetProgress)}%</span></div></div>
+            <div className="mt-6 space-y-3">{items.map(([k,v]) => <div key={k}><div className="flex justify-between text-xs font-mono mb-1"><span>{v.label}</span><span>{fmt(v.monthly)} CHF/Mo</span></div><div className="h-2 bg-zinc-900"><div className="h-full bg-emerald-500/70" style={{ width: `${(v.monthly/vorsorgeTotal)*100}%` }} /></div></div>)}</div>
+          </div>
+          <div className="border border-amber-500/30 bg-amber-500/5 p-4"><div className="flex gap-3"><AlertCircle className="text-amber-400 shrink-0 mt-0.5" size={18} /><div><div className="font-mono text-sm text-amber-400">PKZH-EINKAUFSLÜCKE PRÜFEN</div><div className="text-xs text-zinc-400">Pro 10.000 CHF PK-Einkauf: ~3.500 CHF Steuer gespart.</div><div className="mt-2 text-xs font-mono flex gap-3"><a href="tel:+41444155700" className="text-emerald-400">📞 044 415 57 00</a><a href="mailto:info@pkzh.ch" className="text-emerald-400">✉ info@pkzh.ch</a><a href="https://pkzh.ch" target="_blank" className="text-emerald-400">🌐 pkzh.ch</a></div></div></div></div>
+        </div>
+      );
+    };
+
+    const EtfsTab = ({ data }) => {
+      const etfKeys = Object.keys(data.positions).filter(k => data.positions[k].category === 'etf');
+      return <div className="grid md:grid-cols-2 gap-4">{etfKeys.map(k => <div key={k} className="border border-zinc-800 bg-zinc-950/50 p-4"><div className="text-xs text-zinc-500">{data.positions[k].platform}</div><div className="text-xl font-mono">{data.positions[k].label}</div><div className="text-3xl font-mono mt-3">{fmt(data.positions[k].wertCHF)} <span className="text-base text-zinc-500">CHF</span></div><div className={`text-xs mt-1 ${data.positions[k].plPct>0?'text-emerald-400':'text-zinc-500'}`}>{data.positions[k].plPct ? fmtPct(data.positions[k].plPct) : '–'}</div></div>)}</div>;
+    };
+
+    const PlanTab = ({ data, onUpdate }) => {
+      const toggleTodo = (id) => onUpdate({ ...data, todos: data.todos.map(t => t.id === id ? { ...t, done: !t.done } : t) });
+      const monthlyPlan = [{ asset: 'V3AA Sparplan', amount: 1000, platform: 'Swissquote' }, { asset: 'BTC DCA', amount: 300, platform: 'Relai' }, { asset: 'SOL DCA', amount: 250, platform: 'Swissquote' }, { asset: 'RNDR DCA', amount: 50, platform: 'Kraken' }];
+      const total = monthlyPlan.reduce((s,x)=>s+x.amount,0);
+      const sortedTodos = [...data.todos].sort((a,b)=> a.done === b.done ? (a.priority === 'high' ? -1 : a.priority === 'medium' ? -1 : 1) : a.done ? 1 : -1);
+      return (
+        <div className="space-y-6">
+          <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// MONATLICHER INVESTMENT-PLAN</div></div><table className="w-full text-sm font-mono"><tbody>{monthlyPlan.map(m => <tr key={m.asset} className="border-b border-zinc-900"><td className="px-4 py-2">{m.asset}</td><td className="px-4 py-2 text-right">{fmt(m.amount)} CHF</td><td className="px-4 py-2 text-right text-xs text-zinc-500">{m.platform}</td></tr>)}<tr className="bg-zinc-900/40"><td className="px-4 py-2 font-bold text-emerald-400">TOTAL</td><td className="px-4 py-2 text-right font-bold text-emerald-400">{fmt(total)} CHF</td><td/></tr></tbody></table></div>
+          <div className="border border-zinc-800 bg-zinc-950/50"><div className="px-4 py-3 border-b border-zinc-800"><div className="text-[10px] uppercase text-zinc-500">// TODOs</div></div><div className="divide-y divide-zinc-900">{sortedTodos.map(t => <div key={t.id} onClick={()=>toggleTodo(t.id)} className="px-4 py-2 flex items-center gap-3 cursor-pointer hover:bg-zinc-900/40"><div className={`w-4 h-4 border ${t.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'} flex items-center justify-center`}>{t.done && <Check size={10} className="text-zinc-950" />}</div><div className={`flex-1 text-xs font-mono ${t.done ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{t.text}</div><div className={`text-[10px] uppercase px-2 py-0.5 ${t.priority === 'high' ? 'text-red-400 border border-red-500/30' : t.priority === 'medium' ? 'text-amber-400 border border-amber-500/30' : 'text-zinc-500 border border-zinc-700'}`}>{t.priority}</div></div>)}</div></div>
+        </div>
+      );
+    };
+
+    // ============================================================
+    // 11. DASHBOARD (HAUPT-LAYOUT MIT TAB-NAVIGATION)
+    // ============================================================
+    const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
+      const [tab, setTab] = useState('overview');
+      const total = calcTotal(data.positions);
+      const alloc = calcAllocation(data.positions);
+      const history = data.history.total || [];
+      const prev = history.length > 1 ? history[history.length-2].wertCHF : total;
+      const totalChange = total - prev;
+      const totalChangePct = prev ? (totalChange/prev)*100 : 0;
+      const vorsorgeTotal = Object.values(data.vorsorge).reduce((s,v)=>s+v.monthly,0);
+      const targetProgress = (vorsorgeTotal / data.meta.targetMonthlyRetirement) * 100;
+      return (
+        <div className="min-h-screen bg-zinc-950 text-zinc-200">
+          <header className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+              <Logo />
+              <div className="flex gap-2">
+                <button onClick={onOpenUpload} className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-3 py-2 flex gap-1 items-center"><Plus size={14} />UPDATE</button>
+                <button onClick={onOpenSettings} className="border border-zinc-800 hover:border-zinc-700 p-2"><Settings size={14} /></button>
+              </div>
+            </div>
+            <div className="max-w-7xl mx-auto px-4 flex gap-1 -mb-px overflow-x-auto">
+              {['overview','crypto','vorsorge','etfs','plan'].map(id => <button key={id} onClick={()=>setTab(id)} className={`px-3 py-2 text-xs font-mono border-b-2 whitespace-nowrap ${tab===id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}>{id==='overview'?'ÜBERSICHT':id==='crypto'?'KRYPTO':id==='vorsorge'?'VORSORGE':id==='etfs'?'ETFs':'PLAN & TODOS'}</button>)}
+            </div>
+          </header>
+          <main className="max-w-7xl mx-auto px-4 py-6">
+            {tab === 'overview' && <OverviewTab data={data} total={total} totalChange={totalChange} totalChangePct={totalChangePct} alloc={alloc} vorsorgeTotal={vorsorgeTotal} targetProgress={targetProgress} />}
+            {tab === 'crypto' && <CryptoTab data={data} />}
+            {tab === 'vorsorge' && <VorsorgeTab data={data} vorsorgeTotal={vorsorgeTotal} targetProgress={targetProgress} />}
+            {tab === 'etfs' && <EtfsTab data={data} />}
+            {tab === 'plan' && <PlanTab data={data} onUpdate={onUpdate} />}
+          </main>
+        </div>
+      );
+    };
+
+    // ============================================================
+    // 12. SETTINGS MODAL (EINSTELLUNGEN FÜR WORKER-URL UND MODELL)
+    // ============================================================
+    const SettingsModal = ({ open, onClose, data, onUpdate, workerUrl, onWorkerUrlChange, modelName, onModelNameChange }) => {
+      const [editUrl, setEditUrl] = useState(workerUrl);
+      const [showUrl, setShowUrl] = useState(false);
+      const [editModel, setEditModel] = useState(modelName);
+      const [testResult, setTestResult] = useState(null);
+      const [testing, setTesting] = useState(false);
+      useEffect(() => { setEditUrl(workerUrl); setEditModel(modelName); }, [workerUrl, modelName, open]);
+      const runTest = async () => {
+        setTesting(true);
+        try {
+          const res = await fetch(editUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: editModel, system: 'Antworte mit PONG', messages: [{ role: 'user', content: [{ type: 'text', text: 'PONG' }] }], max_tokens: 10 })
+          });
+          const txt = await res.text();
+          setTestResult({ ok: res.ok, log: `Status ${res.status}\n${txt.slice(0,300)}` });
+        } catch(e) { setTestResult({ ok: false, log: e.message }); }
+        setTesting(false);
+      };
+      if (!open) return null;
+      const handleExport = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})); a.download = `portfolio-${data.meta.lastUpdate}.json`; a.click(); };
+      const handleImport = (e) => { const f = e.target.files[0]; if(f){ const r = new FileReader(); r.onload = ev => { try { onUpdate(JSON.parse(ev.target.result)); onClose(); } catch{ alert('Fehler beim Import'); } }; r.readAsText(f); } };
+      const handleReset = () => { if(confirm('Zurücksetzen auf Seed-Daten?')){ onUpdate(SEED_DATA); onClose(); } };
+      return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex justify-center items-center p-4">
+          <div className="bg-zinc-950 border border-zinc-800 max-w-md w-full max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center border-b border-zinc-800 p-4"><div className="font-mono text-sm text-emerald-400">// SETTINGS</div><button onClick={onClose}><X size={18} /></button></div>
+            <div className="p-6 space-y-6">
+              <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Proxy-URL</div><div className="relative"><input type={showUrl?'text':'password'} value={editUrl} onChange={e=>setEditUrl(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 pr-10 text-sm font-mono" /><button onClick={()=>setShowUrl(!showUrl)} className="absolute right-2 top-1/2 -translate-y-1/2">{showUrl?<EyeOff size={16}/>:<Eye size={16}/>}</button></div><button onClick={()=>onWorkerUrlChange(editUrl)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
+              <div><div className="text-xs font-mono text-zinc-400 mb-2">Claude Modell</div><input type="text" value={editModel} onChange={e=>setEditModel(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm font-mono" /><button onClick={()=>onModelNameChange(editModel)} className="mt-2 text-xs text-emerald-400">→ Speichern</button></div>
+              <div><button onClick={runTest} disabled={testing} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2">{testing?<Loader2 className="animate-spin" size={14}/>:null}{testing?'TESTE...':'PROXY VERBINDUNG TESTEN'}</button>{testResult && <div className={`mt-2 p-2 border text-[10px] font-mono ${testResult.ok?'border-emerald-500/30 text-emerald-300':'border-red-500/30 text-red-300'}`}>{testResult.log}</div>}</div>
+              <div className="border-t border-zinc-800 pt-6"><div className="text-xs font-mono text-zinc-400 mb-2">Daten</div><div className="space-y-2"><button onClick={handleExport} className="w-full border border-zinc-800 py-2 text-xs font-mono flex justify-center gap-2"><Download size={14}/>JSON EXPORTIEREN</button><label className="block w-full border border-zinc-800 py-2 text-xs font-mono text-center cursor-pointer"><Upload size={14} className="inline mr-1"/>JSON IMPORTIEREN<input type="file" accept=".json" onChange={handleImport} className="hidden"/></label><button onClick={handleReset} className="w-full border border-red-500/30 text-red-400 py-2 text-xs font-mono"><Trash2 size={14} className="inline mr-1"/>ZURÜCKSETZEN</button></div></div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================================
+    // 13. HAUPT-APP-KOMPONENTE
+    // ============================================================
+    // Sie initialisiert den Zustand, lädt gespeicherte Daten, speichert bei Änderungen
+    // und rendert das Dashboard sowie die Modals.
+    function App() {
+      const [data, setData] = useState(null);
+      const [workerUrl, setWorkerUrl] = useState(DEFAULT_WORKER_URL);
+      const [modelName, setModelName] = useState(DEFAULT_MODEL);
+      const [uploadOpen, setUploadOpen] = useState(false);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+      const [booted, setBooted] = useState(false);
+
+      // Beim ersten Rendern: Daten aus localStorage laden
+      useEffect(() => {
+        const stored = loadData();
+        const url = loadWorkerUrl();
+        const model = loadModelName();
+        setData(stored || SEED_DATA);
+        setWorkerUrl(url);
+        setModelName(model);
+        setBooted(true);
+      }, []);
+
+      // Bei jeder Änderung der Daten: in localStorage speichern
+      useEffect(() => { if (data && booted) saveData(data); }, [data, booted]);
+
+      // Verarbeitet die aus dem UploadModal kommenden extrahierten Positionen
+      const handleSaveExtracted = (positions) => {
+        const newData = JSON.parse(JSON.stringify(data));
+        const today = new Date().toISOString().slice(0,10);
+        for (const p of positions) {
+          if (!p.asset) continue;
+          const ticker = p.asset.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+          const keyMap = { 'BTC':'btc','ETH':'eth','SOL':'sol','KAS':'kas','RNDR':'rndr','RENDER':'rndr','V3AA':'v3aaCH','VIAC':'viac','ETF-DE':'etfDE','CASH':'cash' };
+          const key = keyMap[ticker];
+          if (key && newData.positions[key]) {
+            // Normale Position (Krypto, ETF, Cash) – Werte überschreiben
+            Object.keys(p).forEach(f => { if (f !== 'asset' && p[f] != null) newData.positions[key][f] = p[f]; });
+            if (!newData.history[key]) newData.history[key] = [];
+            newData.history[key].push({ date: today, wertCHF: newData.positions[key].wertCHF });
+          } else if (ticker === 'PKZH' && p.monthly) newData.vorsorge.pkzh.monthly = p.monthly;
+          else if (ticker === 'AHV' && p.monthly) newData.vorsorge.ahv.monthly = p.monthly;
+          else if (ticker === 'AERZTE' && p.monthly) newData.vorsorge.aerzte.monthly = p.monthly;
+        }
+        const newTotal = calcTotal(newData.positions);
+        if (!newData.history.total) newData.history.total = [];
+        newData.history.total.push({ date: today, wertCHF: newTotal });
+        newData.meta.lastUpdate = today;
+        setData(newData);
+      };
+
+      if (!booted) return <div className="min-h-screen bg-zinc-950 flex justify-center items-center"><Loader2 className="text-emerald-400 animate-spin" size={24} /></div>;
+
+      return (
+        <>
+          <Dashboard data={data} onUpdate={setData} onOpenUpload={()=>setUploadOpen(true)} onOpenSettings={()=>setSettingsOpen(true)} />
+          <UploadModal open={uploadOpen} onClose={()=>setUploadOpen(false)} onSave={handleSaveExtracted} workerUrl={workerUrl} modelName={modelName} />
+          <SettingsModal open={settingsOpen} onClose={()=>setSettingsOpen(false)} data={data} onUpdate={setData} workerUrl={workerUrl} onWorkerUrlChange={setWorkerUrl} modelName={modelName} onModelNameChange={setModelName} />
+        </>
+      );
     }
-    const newTotal = calcTotal(newData.positions);
-    if (!newData.history.total) newData.history.total = [];
-    newData.history.total.push({ date: today, wertCHF: newTotal });
-    newData.meta.lastUpdate = today;
-    setData(newData);
-  };
 
-  if (!booted) return <div className="min-h-screen bg-zinc-950 flex justify-center items-center"><Loader2 className="text-emerald-400 animate-spin" size={24} /></div>;
-
-  return (
-    <>
-      <Dashboard data={data} onUpdate={setData} onOpenUpload={()=>setUploadOpen(true)} onOpenSettings={()=>setSettingsOpen(true)} />
-      <UploadModal open={uploadOpen} onClose={()=>setUploadOpen(false)} onSave={handleSaveExtracted} workerUrl={workerUrl} modelName={modelName} />
-      <SettingsModal open={settingsOpen} onClose={()=>setSettingsOpen(false)} data={data} onUpdate={setData} workerUrl={workerUrl} onWorkerUrlChange={setWorkerUrl} modelName={modelName} onModelNameChange={setModelName} />
-    </>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    // React in das DOM rendern
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
