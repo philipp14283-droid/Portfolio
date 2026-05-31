@@ -69,7 +69,23 @@ const SEED_DATA = {
     rndr: { asset: 'RNDR', label: 'Render', menge: 0, einstand: 0, kurs: 1.37, wertCHF: 0, plPct: 0, platform: 'Kraken (geplant)', conviction: 70, category: 'crypto' },
     viac: { asset: 'VIAC', label: 'VIAC 3a Nachhaltig', menge: 1, einstand: 0, kurs: 0, wertCHF: 52910, plPct: 40.66, platform: 'VIAC', conviction: null, category: 'etf' },
     v3aaCH: { asset: 'V3AA', label: 'V3AA Schweiz', menge: 0, einstand: 0, kurs: 0, wertCHF: 20000, plPct: 2.76, platform: 'Swissquote', conviction: null, category: 'etf' },
-    etfDE: { asset: 'ETF-DE', label: 'ETFs Deutschland', menge: 0, einstand: 0, kurs: 0, wertCHF: 107000, plPct: 27.0, platform: 'Altes Depot DE', conviction: null, category: 'etf' },
+    etfDE: {
+      asset: 'ETF-DE',
+      label: 'ETFs Deutschland',
+      menge: 0,
+      einstand: 0,
+      kurs: 0,
+      wertCHF: 107000,
+      plPct: 27.0,
+      platform: 'Altes Depot DE',
+      conviction: null,
+      category: 'etf',
+      holdings: [
+        { ticker: 'ISHSIV-MSCI WLD.SRI U.EOA', wertCHF: 69590, plPct: 41.53 },
+        { ticker: 'ISHSIV-SUS.M.EM.MK.SRI DL', wertCHF: 26062, plPct: 45.60 },
+        { ticker: 'ISHSIII-M.W.S.C.U.ETF DLA', wertCHF: 5048, plPct: 37.25 },
+      ]
+    },
     cash: { asset: 'CASH', label: 'Notgroschen', menge: 0, einstand: 0, kurs: 0, wertCHF: 25000, plPct: 0, platform: 'Konto', conviction: null, category: 'cash' },
   },
   vorsorge: {
@@ -200,30 +216,41 @@ const getFxRates = async () => {
   }
 };
 
-const buildPrompt = (fx) => `Du bist ein Datenextraktor. Du bekommst einen Screenshot oder Text von einer Finanz-App.
+const buildPrompt = (fx) => `Du bist ein Datenextraktor für ein Finanz-Portfolio. Du bekommst einen Screenshot oder Text von einer Finanz-App.
 
-1. ERKENNE ZUERST die Quelle/Plattform:
-   - "swissquote" = Swissquote Banking (BTC, ETH, Krypto, Stocks)
-   - "kraken" = Kraken Crypto Exchange (KAS, SOL, etc.)
-   - "relai" = Relai App (BTC only)
-   - "viac" = VIAC 3a Vorsorge
-   - "etfDE" = Deutsches ETF-Depot (Broker, Wertpapiere)
-   - "pkzh" = Schweizer Vorsorge (PKZH, AHV, Ärzteversorgung)
+🔴 WICHTIG – FEHLERQUELLE VERMEIDEN:
+Lies ALLE Geldbeträge zweimal und achte auf:
+- Trennzeichen (Punkt = Tausender, Komma = Dezimal in DE/CH; oder umgekehrt)
+- Spalten (nicht Kurs mit Gesamtwert verwechseln!)
+- Währungssymbole (€ = EUR, CHF = CHF, etc.)
 
-2. WÄHRUNG: Erkenne die im Screenshot/Text angezeigte Währung (CHF, EUR, USD, GBP, $, €, £).
-   Rechne ALLE Geldbeträge (wertCHF, einstand, kurs) in CHF um mit diesen tagesaktuellen Kursen:
+1. ERKENNE die Plattform/Quelle:
+   - "swissquote" = Swissquote (BTC, ETH, Krypto, Stocks in CHF)
+   - "kraken" = Kraken (KAS, SOL, etc.)
+   - "relai" = Relai (BTC only)
+   - "viac" = VIAC 3a Vorsorge (CHF)
+   - "etfDE" = Deutsche ETF-Broker (iShares, Sparplan, in EUR meist!)
+   - "pkzh" = Schweizer Vorsorge/AHV
+
+2. 💱 WÄHRUNGS-KONVERTIERUNG (KRITISCH!):
+   Erkenne die Währung jeder Position (€, CHF, USD, £, $):
    - 1 EUR = ${fx.EUR.toFixed(4)} CHF
    - 1 USD = ${fx.USD.toFixed(4)} CHF
    - 1 GBP = ${fx.GBP.toFixed(4)} CHF
-   Ist die Anzeige bereits in CHF, NICHT umrechnen. Das Feld "wertCHF" muss IMMER in CHF sein.
-   "menge" (Stückzahl/Coins) wird NIE umgerechnet.
 
-3. Extrahiere dann die Positionen im passenden Format:
+   BEISPIEL: Wenn App "45.000 €" zeigt → rechne: 45.000 * ${fx.EUR.toFixed(4)} = ${(45000 * fx.EUR).toLocaleString('de-DE')} CHF
+
+   Ergebnis "wertCHF" MUSS IMMER in CHF sein (mit Konvertierung, wenn nötig).
+   "menge" (Coins/Shares) wird NIE umgerechnet.
+
+3. 📋 Extrahiere die Positionen im passenden Format:
 
 FÜR swissquote/kraken/relai: {"source": "...", "positions": [{"asset": "BTC", "menge": 0.5, "einstand": 50000, "kurs": 75000, "wertCHF": 37500, "plPct": 50}]}
 FÜR viac: {"source": "viac", "positions": [{"asset": "VIAC", "wertCHF": 52910, "plPct": 40.66}]}
-FÜR etfDE: {"source": "etfDE", "positions": [{"asset": "ETF-NAME", "wertCHF": 50000, "plPct": 15}]}
+FÜR etfDE (SPEZIAL – Werte meist in EUR!): {"source": "etfDE", "positions": [{"asset": "ISIN oder Name", "wertCHF": GESAMTWERT_IN_CHF_NACH_KONVERTIERUNG, "plPct": GEWINN_PROZENT}]}
 FÜR pkzh: {"source": "pkzh", "positions": [{"asset": "PKZH", "monthly": 3250}]}
+
+⚠️ WARNUNG für etfDE: Deutsche Broker zeigen oft EUR, nicht CHF! Rechne IMMER um!
 
 ${JSON_RULES}`;
 
@@ -857,6 +884,7 @@ const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
 // OVERVIEW TAB
 // ============================================================
 const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorgeTotal, targetProgress }) => {
+  const [expandedHoldings, setExpandedHoldings] = useState({});
   const trendData = data.history.total.map(h => ({
     date: h.date.slice(5),
     value: h.wertCHF,
@@ -945,10 +973,10 @@ const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorge
       <div className="grid md:grid-cols-3 gap-4">
         <div className="border border-zinc-800 bg-zinc-950/50 p-4">
           <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono mb-3">ALLOKATION</div>
-          <div className="h-40">
+          <div className="h-64 md:h-96">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={allocPie} dataKey="value" innerRadius={35} outerRadius={60} paddingAngle={2}>
+                <Pie data={allocPie} dataKey="value" innerRadius={40} outerRadius={80} paddingAngle={2}>
                   {allocPie.map((entry, i) => (
                     <Cell key={i} fill={entry.color} stroke="#09090b" />
                   ))}
@@ -991,17 +1019,43 @@ const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorge
             </tr>
           </thead>
           <tbody>
-            {Object.entries(data.positions).map(([key, p]) => (
-              <tr key={key} className="border-b border-zinc-900 hover:bg-zinc-900/40">
-                <td className="px-4 py-2 text-zinc-200">{p.label}</td>
-                <td className="text-right px-4 py-2 text-zinc-400 text-xs">{p.menge ? fmt(p.menge, p.menge < 1 ? 5 : 2) : '–'}</td>
-                <td className="text-right px-4 py-2 text-zinc-200">{fmt(p.wertCHF)}</td>
-                <td className={`text-right px-4 py-2 ${p.plPct > 0 ? 'text-emerald-400' : p.plPct < 0 ? 'text-red-400' : 'text-zinc-500'}`}>
-                  {p.plPct ? fmtPct(p.plPct) : '–'}
-                </td>
-                <td className="px-4 py-2 text-zinc-500 text-xs hidden md:table-cell">{p.platform}</td>
-              </tr>
-            ))}
+            {Object.entries(data.positions).map(([key, p]) => {
+              // Skip assets that are holdings in other positions
+              const isHoldingOfAnother = Object.values(data.positions).some(parent =>
+                parent.holdings && parent.holdings.some(h => h.ticker === p.asset)
+              );
+              if (isHoldingOfAnother) return null;
+
+              return (
+                <React.Fragment key={key}>
+                  <tr className="border-b border-zinc-900 hover:bg-zinc-900/40 cursor-pointer" onClick={() => p.holdings && setExpandedHoldings(prev => ({ ...prev, [key]: !prev[key] }))}>
+                    <td className="px-4 py-2 text-zinc-200 flex items-center gap-2">
+                      {p.holdings && p.holdings.length > 0 && (
+                        <span className="text-xs text-zinc-500">{expandedHoldings[key] ? '▼' : '▶'}</span>
+                      )}
+                      <span>{p.label}</span>
+                    </td>
+                    <td className="text-right px-4 py-2 text-zinc-400 text-xs">{p.menge ? fmt(p.menge, p.menge < 1 ? 5 : 2) : '–'}</td>
+                    <td className="text-right px-4 py-2 text-zinc-200">{fmt(p.wertCHF)}</td>
+                    <td className={`text-right px-4 py-2 ${p.plPct > 0 ? 'text-emerald-400' : p.plPct < 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                      {p.plPct ? fmtPct(p.plPct) : '–'}
+                    </td>
+                    <td className="px-4 py-2 text-zinc-500 text-xs hidden md:table-cell">{p.platform}</td>
+                  </tr>
+                  {expandedHoldings[key] && p.holdings && p.holdings.map((holding, idx) => (
+                    <tr key={`${key}-holding-${idx}`} className="border-b border-zinc-950 bg-zinc-950/30 hover:bg-zinc-900/20">
+                      <td className="px-4 py-2 text-zinc-400 pl-8">↳ {holding.ticker}</td>
+                      <td className="text-right px-4 py-2 text-zinc-500 text-xs">–</td>
+                      <td className="text-right px-4 py-2 text-zinc-400">{fmt(holding.wertCHF)}</td>
+                      <td className={`text-right px-4 py-2 text-sm ${holding.plPct > 0 ? 'text-emerald-400' : holding.plPct < 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                        {holding.plPct ? fmtPct(holding.plPct) : '–'}
+                      </td>
+                      <td className="px-4 py-2 text-zinc-600 text-xs hidden md:table-cell">–</td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1389,6 +1443,68 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [booted, setBooted] = useState(false);
 
+  // Data migration: convert old structure to new with holdings
+  const migrateData = (data) => {
+    if (!data || !data.positions) return data;
+
+    const migrated = { ...data, positions: { ...data.positions } };
+
+    // Move German ETFs as holdings into etfDE
+    const germanETFPatterns = /^(ISHSIV|ISHSII|ISHSIII|SUSW|SUSM|IUSN)/;
+    const etfHoldings = [];
+    const keysToDelete = [];
+
+    Object.entries(migrated.positions).forEach(([key, p]) => {
+      if (germanETFPatterns.test(p.asset)) {
+        etfHoldings.push({
+          ticker: p.asset,
+          wertCHF: p.wertCHF,
+          plPct: p.plPct,
+        });
+        keysToDelete.push(key);
+      }
+    });
+
+    // Update etfDE with holdings (merge with existing)
+    if (etfHoldings.length > 0 && migrated.positions.etfDE) {
+      if (!migrated.positions.etfDE.holdings) {
+        migrated.positions.etfDE.holdings = [];
+      }
+      // Merge: add new holdings if not already present
+      etfHoldings.forEach(newH => {
+        if (!migrated.positions.etfDE.holdings.some(h => h.ticker === newH.ticker)) {
+          migrated.positions.etfDE.holdings.push(newH);
+        }
+      });
+      // Recalculate etfDE totals
+      migrated.positions.etfDE.wertCHF = migrated.positions.etfDE.holdings.reduce((sum, h) => sum + h.wertCHF, 0);
+      const totalWert = migrated.positions.etfDE.wertCHF;
+      migrated.positions.etfDE.plPct = totalWert > 0
+        ? migrated.positions.etfDE.holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
+        : 0;
+    }
+
+    // Delete old keys
+    keysToDelete.forEach(key => {
+      delete migrated.positions[key];
+      // Also delete history for these keys
+      if (migrated.history && migrated.history[key]) {
+        delete migrated.history[key];
+      }
+    });
+
+    // Recalculate history.total after migration
+    if (migrated.history && migrated.history.total) {
+      const newTotal = Object.keys(migrated.positions).reduce((sum, key) => {
+        return sum + (migrated.positions[key].wertCHF || 0);
+      }, 0);
+      // Reset history.total with only the current value to avoid confusion
+      migrated.history.total = [{ date: new Date().toISOString().slice(0, 10), wertCHF: newTotal }];
+    }
+
+    return migrated;
+  };
+
   // Initial load: versuche von Cloudflare zu laden, fallback zu localStorage
   useEffect(() => {
     (async () => {
@@ -1398,7 +1514,8 @@ function App() {
       // Zuerst Cloudflare versuchen
       const cloudflareData = await loadFromCloudflare();
       if (cloudflareData) {
-        setData(cloudflareData);
+        const migratedData = migrateData(cloudflareData);
+        setData(migratedData);
         setSetupDone(true);
         setBooted(true);
         return;
@@ -1407,7 +1524,8 @@ function App() {
       // Fallback: localStorage
       const stored = loadData();
       if (stored) {
-        setData(stored);
+        const migratedData = migrateData(stored);
+        setData(migratedData);
         setSetupDone(true);
       } else {
         setData(SEED_DATA);
@@ -1446,38 +1564,49 @@ function App() {
         'V3AA': 'v3aaCH', 'VIAC': 'viac',
         'ETF-DE': 'etfDE', 'CASH': 'cash', 'NOTGROSCHEN': 'cash',
       };
-      let key = keyMap[ticker];
+      const key = keyMap[ticker];
 
-      // If not in keyMap, create a new key dynamically
-      if (!key) {
-        key = ticker.toLowerCase().replace(/[^a-z0-9]/g, '');
-      }
+      if (key && newData.positions[key]) {
+        // Known asset – update as before
+        Object.keys(p).forEach(field => {
+          if (field !== 'asset' && p[field] != null) {
+            newData.positions[key][field] = p[field];
+          }
+        });
+        // Append to history
+        if (!newData.history[key]) newData.history[key] = [];
+        newData.history[key].push({ date: today, wertCHF: newData.positions[key].wertCHF });
+      } else {
+        // Unknown asset – add as holding to etfDE (or other parent if applicable)
+        // Heuristic: German ETF tickers → etfDE
+        const isGermanETF = ticker.match(/^(ISHSIV|ISHSII|ISHSIII|SUSW|SUSM|IUSN)/);
+        const parentKey = isGermanETF ? 'etfDE' : null;
 
-      if (!newData.positions[key]) {
-        // Create new position if doesn't exist
-        newData.positions[key] = {
-          asset: p.asset,
-          label: p.asset,
-          menge: 0,
-          einstand: 0,
-          kurs: 0,
-          wertCHF: 0,
-          plPct: 0,
-          platform: source || 'Import',
-          conviction: null,
-          category: source === 'pkzh' ? 'vorsorge' : 'etf',
-        };
-      }
-
-      // Update position (echte 0-Werte werden übernommen, nur null/undefined ignoriert)
-      Object.keys(p).forEach(field => {
-        if (field !== 'asset' && p[field] != null) {
-          newData.positions[key][field] = p[field];
+        if (parentKey && newData.positions[parentKey]) {
+          if (!newData.positions[parentKey].holdings) {
+            newData.positions[parentKey].holdings = [];
+          }
+          // Add or update holding
+          const existingIdx = newData.positions[parentKey].holdings.findIndex(h => h.ticker === p.asset);
+          const holding = {
+            ticker: p.asset,
+            wertCHF: p.wertCHF || 0,
+            plPct: p.plPct || 0,
+          };
+          if (existingIdx >= 0) {
+            newData.positions[parentKey].holdings[existingIdx] = holding;
+          } else {
+            newData.positions[parentKey].holdings.push(holding);
+          }
+          // Recompute parent wertCHF as sum of holdings
+          newData.positions[parentKey].wertCHF = newData.positions[parentKey].holdings.reduce((sum, h) => sum + h.wertCHF, 0);
+          // Compute average plPct weighted by wertCHF
+          const totalWert = newData.positions[parentKey].wertCHF;
+          newData.positions[parentKey].plPct = totalWert > 0
+            ? newData.positions[parentKey].holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
+            : 0;
         }
-      });
-      // Append to history
-      if (!newData.history[key]) newData.history[key] = [];
-      newData.history[key].push({ date: today, wertCHF: newData.positions[key].wertCHF });
+      }
     });
 
     // Recompute total history
