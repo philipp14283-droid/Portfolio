@@ -124,7 +124,7 @@ const SEED_DATA = {
 // ============================================================
 // 4. LOCALSTORAGE HELFER
 // ============================================================
-const loadData = () => { try { const v = localStorage.getItem(STORAGE_KEY); return v ? JSON.parse(v) : null; } catch { return null; } };
+const loadData = () => { try { const v = localStorage.getItem(STORAGE_KEY); if (!v) return null; const data = JSON.parse(v); return data.positions ? { ...data, positions: deduplicateHoldings(data.positions) } : data; } catch { return null; } };
 const saveData = (data) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { console.error(e); } };
 const loadWorkerUrl = () => { try { return localStorage.getItem(WORKER_URL_STORAGE) || DEFAULT_WORKER_URL; } catch { return DEFAULT_WORKER_URL; } };
 const saveWorkerUrl = (url) => { try { localStorage.setItem(WORKER_URL_STORAGE, url); } catch { console.error(e); } };
@@ -234,6 +234,21 @@ const callClaudeTextViaProxy = async (workerUrl, modelName, eurRate, rawText) =>
 const fmt = (n, decimals = 0) => n == null || isNaN(n) ? '–' : new Intl.NumberFormat('de-CH', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
 const fmtChf = (n) => `${fmt(n, 0)} CHF`;
 const fmtPct = (n) => `${n > 0 ? '+' : ''}${fmt(n, 2)}%`;
+
+const deduplicateHoldings = (positions) => {
+  const dedup = { ...positions };
+  Object.keys(dedup).forEach(key => {
+    if (dedup[key].holdings && Array.isArray(dedup[key].holdings)) {
+      const seen = new Set();
+      dedup[key].holdings = dedup[key].holdings.filter(h => {
+        if (seen.has(h.isin)) return false;
+        seen.add(h.isin);
+        return true;
+      });
+    }
+  });
+  return dedup;
+};
 
 const calcTotal = (positions) => Object.values(positions).reduce((s, p) => s + (p.wertCHF || 0), 0);
 
@@ -711,7 +726,8 @@ function App() {
     const url = loadWorkerUrl();
     const model = loadModelName();
     const rate = loadEurRate();
-    setData(stored || SEED_DATA);
+    const cleanSeedData = { ...SEED_DATA, positions: deduplicateHoldings(SEED_DATA.positions) };
+    setData(stored || cleanSeedData);
     setWorkerUrl(url);
     setModelName(model);
     setEurRate(rate);
