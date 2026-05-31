@@ -1008,7 +1008,8 @@ const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorge
           <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">// ALLE POSITIONEN</div>
           <div className="text-[10px] text-zinc-600 font-mono">letzte Aktualisierung: {data.meta.lastUpdate}</div>
         </div>
-        <table className="w-full text-sm font-mono">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm font-mono">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
               <th className="text-left px-4 py-2">Asset</th>
@@ -1058,6 +1059,7 @@ const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorge
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
