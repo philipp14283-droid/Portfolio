@@ -164,6 +164,45 @@ const loadData = () => {
 
 const saveData = (data) => {
   try {
+    // Deduplicate ETF holdings before saving
+    const normalizeEtfTicker = (ticker) => {
+      return ticker.replace(/\s*[\(\[]IE[A-Z0-9]+[\)\]]\s*/g, '').trim();
+    };
+
+    if (data && data.positions && data.positions.etfDE && Array.isArray(data.positions.etfDE.holdings)) {
+      const holdings = data.positions.etfDE.holdings;
+      const holdingsByNormalized = {};
+
+      holdings.forEach(h => {
+        if (!h || !h.ticker) return;
+        const normalized = normalizeEtfTicker(h.ticker);
+        if (!holdingsByNormalized[normalized]) {
+          holdingsByNormalized[normalized] = { ticker: h.ticker, wertCHF: 0, plPct: 0, count: 0 };
+        }
+        holdingsByNormalized[normalized].wertCHF += h.wertCHF || 0;
+        holdingsByNormalized[normalized].plPct += h.plPct || 0;
+        holdingsByNormalized[normalized].count += 1;
+      });
+
+      const deduped = Object.values(holdingsByNormalized);
+      if (deduped.length < holdings.length) {
+        // Create a copy to avoid mutating the original
+        const dataCopy = JSON.parse(JSON.stringify(data));
+        dataCopy.positions.etfDE.holdings = deduped.map(h => ({
+          ticker: h.ticker,
+          wertCHF: h.wertCHF,
+          plPct: h.count > 0 ? h.plPct / h.count : 0,
+        }));
+        dataCopy.positions.etfDE.wertCHF = dataCopy.positions.etfDE.holdings.reduce((sum, h) => sum + h.wertCHF, 0);
+        const totalWert = dataCopy.positions.etfDE.wertCHF;
+        dataCopy.positions.etfDE.plPct = totalWert > 0
+          ? dataCopy.positions.etfDE.holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
+          : 0;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(dataCopy));
+        return;
+      }
+    }
+
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
     console.error('Save failed:', e);
@@ -1726,6 +1765,12 @@ function App() {
   const migrateData = (data) => {
     if (!data || !data.positions) return data;
 
+    // Normalize ETF tickers: extract base ticker (before ISIN/other qualifiers)
+    const normalizeEtfTicker = (ticker) => {
+      // Remove ISIN patterns like (IE00BF4RFH31) or [IE00BF4RFH31]
+      return ticker.replace(/\s*[\(\[]IE[A-Z0-9]+[\)\]]\s*/g, '').trim();
+    };
+
     const migrated = { ...data, positions: { ...data.positions } };
 
     // Move German ETFs as holdings into etfDE
@@ -1745,22 +1790,18 @@ function App() {
     });
 
     // Update etfDE with holdings (merge with existing)
-    if (etfHoldings.length > 0 && migrated.positions.etfDE) {
+    if (migrated.positions.etfDE) {
       if (!migrated.positions.etfDE.holdings) {
         migrated.positions.etfDE.holdings = [];
       }
-      // Merge: add new holdings if not already present
+      // Merge: add new holdings if not already present (check normalized tickers)
       etfHoldings.forEach(newH => {
-        if (!migrated.positions.etfDE.holdings.some(h => h.ticker === newH.ticker)) {
+        const normalizedNew = normalizeEtfTicker(newH.ticker);
+        const exists = migrated.positions.etfDE.holdings.some(h => normalizeEtfTicker(h.ticker) === normalizedNew);
+        if (!exists) {
           migrated.positions.etfDE.holdings.push(newH);
         }
       });
-      // Recalculate etfDE totals
-      migrated.positions.etfDE.wertCHF = migrated.positions.etfDE.holdings.reduce((sum, h) => sum + h.wertCHF, 0);
-      const totalWert = migrated.positions.etfDE.wertCHF;
-      migrated.positions.etfDE.plPct = totalWert > 0
-        ? migrated.positions.etfDE.holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
-        : 0;
     }
 
     // Delete old keys
@@ -1771,6 +1812,42 @@ function App() {
         delete migrated.history[key];
       }
     });
+
+    // Deduplicate ALL ETF holdings (in case they were imported with variants like with/without ISIN)
+    try {
+      if (migrated.positions.etfDE && migrated.positions.etfDE.holdings && Array.isArray(migrated.positions.etfDE.holdings)) {
+        const holdingsByNormalized = {};
+        migrated.positions.etfDE.holdings.forEach(h => {
+          if (!h || !h.ticker) return;
+          const normalized = normalizeEtfTicker(h.ticker);
+          if (!holdingsByNormalized[normalized]) {
+            holdingsByNormalized[normalized] = { ticker: h.ticker, wertCHF: 0, plPct: 0, count: 0 };
+          }
+          holdingsByNormalized[normalized].wertCHF += h.wertCHF || 0;
+          holdingsByNormalized[normalized].plPct += h.plPct || 0;
+          holdingsByNormalized[normalized].count += 1;
+        });
+
+        const deduped = Object.values(holdingsByNormalized);
+        if (deduped.length > 0 && deduped.length < migrated.positions.etfDE.holdings.length) {
+          // Only update if we actually removed duplicates
+          migrated.positions.etfDE.holdings = deduped.map(h => ({
+            ticker: h.ticker,
+            wertCHF: h.wertCHF,
+            plPct: h.count > 0 ? h.plPct / h.count : 0,
+          }));
+
+          // Recalculate etfDE totals after dedup
+          migrated.positions.etfDE.wertCHF = migrated.positions.etfDE.holdings.reduce((sum, h) => sum + h.wertCHF, 0);
+          const totalWert = migrated.positions.etfDE.wertCHF;
+          migrated.positions.etfDE.plPct = totalWert > 0
+            ? migrated.positions.etfDE.holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
+            : 0;
+        }
+      }
+    } catch (e) {
+      // Silently fail dedup, continue with migration
+    }
 
     // Recalculate history.total after migration
     if (migrated.history && migrated.history.total) {
@@ -1784,6 +1861,53 @@ function App() {
     return migrated;
   };
 
+  // Helper: deduplicate ETF holdings by normalized ticker
+  const deduplicateData = (data) => {
+    if (!data || !data.positions || !data.positions.etfDE || !Array.isArray(data.positions.etfDE.holdings)) return data;
+
+    const normalizeEtfTicker = (ticker) => {
+      return ticker.replace(/\s*[\(\[]IE[A-Z0-9]+[\)\]]\s*/g, '').trim();
+    };
+
+    const holdings = data.positions.etfDE.holdings;
+    const holdingsByNormalized = {};
+
+    holdings.forEach(h => {
+      if (!h || !h.ticker) return;
+      const normalized = normalizeEtfTicker(h.ticker);
+      if (!holdingsByNormalized[normalized]) {
+        holdingsByNormalized[normalized] = { ticker: h.ticker, wertCHF: 0, plPct: 0, count: 0 };
+      }
+      holdingsByNormalized[normalized].wertCHF += h.wertCHF || 0;
+      holdingsByNormalized[normalized].plPct += h.plPct || 0;
+      holdingsByNormalized[normalized].count += 1;
+    });
+
+    const deduped = Object.values(holdingsByNormalized);
+
+    // Only create new object if we actually removed duplicates
+    if (deduped.length < holdings.length) {
+      const newData = JSON.parse(JSON.stringify(data)); // Deep clone
+
+      newData.positions.etfDE.holdings = deduped.map(h => ({
+        ticker: h.ticker,
+        wertCHF: h.wertCHF,
+        plPct: h.count > 0 ? h.plPct / h.count : 0,
+      }));
+
+      // Recalculate totals
+      newData.positions.etfDE.wertCHF = newData.positions.etfDE.holdings.reduce((sum, h) => sum + h.wertCHF, 0);
+      const totalWert = newData.positions.etfDE.wertCHF;
+      newData.positions.etfDE.plPct = totalWert > 0
+        ? newData.positions.etfDE.holdings.reduce((sum, h) => sum + (h.plPct * h.wertCHF), 0) / totalWert
+        : 0;
+
+      return newData;
+    }
+
+    return data;
+  };
+
   // Initial load: versuche von Cloudflare zu laden, fallback zu localStorage
   useEffect(() => {
     (async () => {
@@ -1794,7 +1918,10 @@ function App() {
       const cloudflareData = await loadFromCloudflare();
       if (cloudflareData) {
         const migratedData = migrateData(cloudflareData);
-        setData(migratedData);
+        const deduped = deduplicateData(migratedData);
+        setData(deduped);
+        // Save deduplicated data immediately
+        saveData(deduped);
         setSetupDone(true);
         setBooted(true);
         return;
@@ -1804,7 +1931,10 @@ function App() {
       const stored = loadData();
       if (stored) {
         const migratedData = migrateData(stored);
-        setData(migratedData);
+        const deduped = deduplicateData(migratedData);
+        setData(deduped);
+        // Save deduplicated data immediately
+        saveData(deduped);
         setSetupDone(true);
       } else {
         setData(SEED_DATA);
@@ -1815,7 +1945,10 @@ function App() {
 
   // Persist on change
   useEffect(() => {
-    if (data && booted) saveData(data);
+    if (data && booted) {
+      saveData(data);
+      saveToCloudflare(data);
+    }
   }, [data, booted]);
 
   const handleSetupComplete = () => {
