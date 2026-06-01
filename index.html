@@ -49,6 +49,7 @@ const Loader2 = (p) => <Icon {...p}><path d="M21 12a9 9 0 1 1-6.219-8.56" /></Ic
 const Eye = (p) => <Icon {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></Icon>;
 const EyeOff = (p) => <Icon {...p}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></Icon>;
 const FileText = (p) => <Icon {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></Icon>;
+const RefreshCw = (p) => <Icon {...p}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></Icon>;
 
 // ============================================================
 // SEED DATA – Stand Mai 2026 aus Profil
@@ -193,10 +194,26 @@ const CLAUDE_MODEL = 'claude-haiku-4-5-20251001'; // bei Bedarf editierbar
 
 const JSON_RULES = `WICHTIG: Antworte AUSSCHLIESSLICH mit reinem JSON. Kein Markdown, keine Code-Fences, kein Erklärungstext, keine Einleitung. Beginne direkt mit { und ende mit }. Wenn ein Wert nicht erkennbar ist, gib 0 zurück.`;
 
-// Tagesaktuelle Wechselkurse holen (CHF pro 1 Einheit Fremdwährung). Session-Cache.
+// Tagesaktuelle Wechselkurse holen (CHF pro 1 Einheit Fremdwährung).
+// Cache: localStorage mit 1h TTL (überlebt Tab-Wechsel, vermeidet falsche Konvertierung).
 let _fxCache = null;
+const FX_CACHE_KEY = 'portfolio-fx-cache';
+const FX_TTL_MS = 60 * 60 * 1000; // 1 Stunde
+
 const getFxRates = async () => {
   if (_fxCache) return _fxCache;
+  // localStorage-Cache prüfen
+  try {
+    const raw = localStorage.getItem(FX_CACHE_KEY);
+    if (raw) {
+      const { data, ts } = JSON.parse(raw);
+      if (data && Date.now() - ts < FX_TTL_MS) {
+        _fxCache = data;
+        return _fxCache;
+      }
+    }
+  } catch {}
+
   try {
     const r = await fetch('https://open.er-api.com/v6/latest/CHF');
     const d = await r.json();
@@ -209,11 +226,171 @@ const getFxRates = async () => {
       USD: 1 / rates.USD,
       GBP: 1 / rates.GBP,
     };
+    try { localStorage.setItem(FX_CACHE_KEY, JSON.stringify({ data: _fxCache, ts: Date.now() })); } catch {}
     return _fxCache;
   } catch (e) {
     // Fallback: grobe Richtwerte, falls FX-API nicht erreichbar
     return { date: 'Fallback (FX-API offline)', EUR: 0.95, USD: 0.88, GBP: 1.10 };
   }
+};
+
+// ============================================================
+// LIVE-PREISE: Externe Markt-APIs (Binance, CoinGecko, Yahoo via Worker)
+// ============================================================
+// Mapping: Portfolio-Key -> Datenquelle + Ticker
+const PRICE_SOURCES = {
+  btc:    { source: 'binance',   ticker: 'BTCUSDT' },
+  eth:    { source: 'binance',   ticker: 'ETHUSDT' },
+  sol:    { source: 'binance',   ticker: 'SOLUSDT' },
+  rndr:   { source: 'binance',   ticker: 'RNDRUSDT' },
+  kas:    { source: 'coingecko', ticker: 'kaspa' },      // liefert CHF direkt
+  v3aaCH: { source: 'yahoo',     ticker: 'V3AA.SW' },     // CHF (Swiss)
+};
+// ETF-Holdings (in etfDE.holdings) -> Yahoo-Ticker. DEAKTIVIERT, da Yahoo europäische UCITS-ETFs nicht kennt.
+// Siehe PROJECT.md für ISIN-Codes + nächste Steps (Morningstar/Finnhub API).
+// ETF-Updates laufen aktuell manuell über Screenshot-Upload.
+const ETF_HOLDING_TICKERS = {};
+
+// Holt alle verfügbaren Live-Preise parallel. Gibt CHF-Preise + Fehlerliste zurück.
+// results-Form: { btc:{price,currency,source}, ..., yahoo:{ 'V3AA.SW':{price}, 'SUSW.DE':{price} } }
+const fetchPrices = async () => {
+  const fx = await getFxRates();
+  const today = new Date().toISOString().slice(0, 10);
+  const results = { yahoo: {} };
+  const errors = [];
+
+  // --- Binance (USDT -> CHF via fx.USD) ---
+  const binanceKeys = Object.keys(PRICE_SOURCES).filter(k => PRICE_SOURCES[k].source === 'binance');
+  const binancePromises = binanceKeys.map(key => {
+    const { ticker } = PRICE_SOURCES[key];
+    return fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ticker}`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => {
+        const usd = parseFloat(d.price);
+        if (!usd || isNaN(usd)) throw new Error('kein Preis');
+        results[key] = { price: usd * fx.USD, currency: 'CHF', source: 'binance', raw: usd };
+      })
+      .catch(e => errors.push(`${ticker} (Binance): ${e.message}`));
+  });
+
+  // --- CoinGecko (Kaspa, liefert CHF direkt) ---
+  const coingeckoPromise = fetch('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=chf')
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    .then(d => {
+      const chf = d?.kaspa?.chf;
+      if (!chf) throw new Error('kein Preis');
+      results.kas = { price: chf, currency: 'CHF', source: 'coingecko' };
+    })
+    .catch(e => errors.push(`Kaspa (CoinGecko): ${e.message}`));
+
+  // --- Yahoo via Worker (EUR/CHF -> CHF) ---
+  const yahooTickers = new Set([
+    PRICE_SOURCES.v3aaCH.ticker,
+    ...Object.values(ETF_HOLDING_TICKERS),
+  ]);
+  const yahooPromises = [...yahooTickers].map(ticker =>
+    fetch(`${CLAUDE_WORKER_URL}/api/yahoo?ticker=${encodeURIComponent(ticker)}`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => {
+        if (d.error) throw new Error(d.error);
+        const price = parseFloat(d.price);
+        if (!price || isNaN(price)) throw new Error('kein Preis');
+        // Währung: Yahoo gibt currency mit. EUR -> CHF, CHF bleibt.
+        const cur = (d.currency || 'EUR').toUpperCase();
+        const chf = cur === 'CHF' ? price : cur === 'EUR' ? price * fx.EUR : cur === 'USD' ? price * fx.USD : price;
+        results.yahoo[ticker] = { price: chf, currency: 'CHF', source: 'yahoo', rawCurrency: cur };
+      })
+      .catch(e => errors.push(`${ticker} (Yahoo): ${e.message}`))
+  );
+
+  await Promise.allSettled([...binancePromises, coingeckoPromise, ...yahooPromises]);
+  return { results, errors, date: today, fx };
+};
+
+// Aktualisiert Positionen mit Live-Preisen. Reine Funktion -> gibt {newData, updated, errors}.
+const updatePositionsWithPrices = (data, pricesFetch) => {
+  const { results, errors, date } = pricesFetch;
+  const newData = {
+    ...data,
+    positions: JSON.parse(JSON.stringify(data.positions)),
+    history: { ...(data.history || {}) },
+    meta: { ...data.meta },
+  };
+  let updated = 0;
+
+  // --- Krypto: kurs setzen, wertCHF = menge * kurs, plPct neu ---
+  ['btc', 'eth', 'sol', 'kas', 'rndr'].forEach(key => {
+    const pr = results[key];
+    const pos = newData.positions[key];
+    if (!pr || !pos) return;
+    const neuerKurs = pr.price;
+    pos.kurs = neuerKurs;
+    if (pos.menge > 0) {
+      pos.wertCHF = pos.menge * neuerKurs;
+      pos.plPct = pos.einstand > 0 ? ((neuerKurs - pos.einstand) / pos.einstand) * 100 : pos.plPct;
+    }
+    // History append (auch wenn menge=0, dokumentiert Kursverlauf)
+    if (!newData.history[key]) newData.history[key] = [];
+    newData.history[key] = [...newData.history[key], { date, wertCHF: pos.wertCHF }];
+    updated++;
+  });
+
+  // --- V3AA Schweiz (ETF, Menge meist unbekannt -> Faktor-Skalierung) ---
+  const v3 = newData.positions.v3aaCH;
+  const v3pr = results.yahoo[PRICE_SOURCES.v3aaCH.ticker];
+  if (v3 && v3pr) {
+    const neuerKurs = v3pr.price;
+    if (v3.menge > 0) {
+      v3.wertCHF = v3.menge * neuerKurs;
+      v3.plPct = v3.einstand > 0 ? ((neuerKurs - v3.einstand) / v3.einstand) * 100 : v3.plPct;
+    } else if (v3.kurs > 0) {
+      // Faktor-Skalierung: alter Wert * (neuerKurs / alterKurs)
+      v3.wertCHF = v3.wertCHF * (neuerKurs / v3.kurs);
+    }
+    v3.kurs = neuerKurs;
+    if (!newData.history.v3aaCH) newData.history.v3aaCH = [];
+    newData.history.v3aaCH = [...newData.history.v3aaCH, { date, wertCHF: v3.wertCHF }];
+    updated++;
+  }
+
+  // --- ETFs Deutschland (Holdings): Faktor-Skalierung pro Holding ---
+  const etfDE = newData.positions.etfDE;
+  if (etfDE && Array.isArray(etfDE.holdings)) {
+    let anyEtfUpdated = false;
+    etfDE.holdings = etfDE.holdings.map(h => {
+      const yTicker = ETF_HOLDING_TICKERS[h.ticker];
+      const pr = yTicker && results.yahoo[yTicker];
+      if (!pr) return h;
+      const neuerKurs = pr.price;
+      const nh = { ...h };
+      if (nh.kurs > 0) {
+        // Faktor-Skalierung des Werts
+        nh.wertCHF = nh.wertCHF * (neuerKurs / nh.kurs);
+      }
+      nh.kurs = neuerKurs;
+      anyEtfUpdated = true;
+      return nh;
+    });
+    if (anyEtfUpdated) {
+      // etfDE Aggregat neu berechnen
+      etfDE.wertCHF = etfDE.holdings.reduce((s, h) => s + (h.wertCHF || 0), 0);
+      const tot = etfDE.wertCHF;
+      etfDE.plPct = tot > 0
+        ? etfDE.holdings.reduce((s, h) => s + (h.plPct || 0) * (h.wertCHF || 0), 0) / tot
+        : etfDE.plPct;
+      if (!newData.history.etfDE) newData.history.etfDE = [];
+      newData.history.etfDE = [...newData.history.etfDE, { date, wertCHF: etfDE.wertCHF }];
+      updated++;
+    }
+  }
+
+  // --- Gesamt-History + Meta ---
+  const newTotal = calcTotal(newData.positions);
+  newData.history.total = [...(newData.history.total || []), { date, wertCHF: newTotal }];
+  newData.meta.lastUpdate = date;
+  newData.meta.lastUpdatePriceSource = 'live-api';
+
+  return { newData, updated, errors };
 };
 
 const buildPrompt = (fx) => `Du bist ein Datenextraktor für ein Finanz-Portfolio. Du bekommst einen Screenshot oder Text von einer Finanz-App.
@@ -399,6 +576,11 @@ const fmtDate = (dateStr) => {
   if (!dateStr) return '–';
   const [year, month, day] = dateStr.split('-');
   return `${day}.${month}.${year}`;
+};
+const fmtDateShort = (dateStr) => {
+  if (!dateStr) return '–';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}.${month}`;
 };
 
 const calcTotal = (positions) => Object.values(positions).reduce((s, p) => s + (p.wertCHF || 0), 0);
@@ -809,6 +991,39 @@ const Field = ({ label, value, onChange, type = 'number' }) => (
 // ============================================================
 const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
   const [tab, setTab] = useState('overview');
+  const [updating, setUpdating] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState(null); // { ok, message, errors }
+
+  // Live-Kurse abrufen und Positionen aktualisieren
+  const handleUpdatePrices = async () => {
+    if (updating) return;
+    setUpdating(true);
+    setUpdateStatus(null);
+    try {
+      const result = await fetchPrices();
+      const { newData, updated, errors } = updatePositionsWithPrices(data, result);
+      onUpdate(newData);
+      saveToCloudflare(newData);
+      setUpdateStatus({
+        ok: updated > 0,
+        message: updated > 0
+          ? `${updated} ${updated === 1 ? 'Position' : 'Positionen'} aktualisiert (${fmtDate(result.date)})`
+          : 'Keine Kurse abrufbar',
+        errors: errors && errors.length ? errors : null,
+      });
+    } catch (e) {
+      setUpdateStatus({ ok: false, message: `Fehler: ${e.message}`, errors: null });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Toast nach 7s automatisch ausblenden
+  useEffect(() => {
+    if (!updateStatus) return;
+    const t = setTimeout(() => setUpdateStatus(null), 7000);
+    return () => clearTimeout(t);
+  }, [updateStatus]);
 
   const total = calcTotal(data.positions);
   const alloc = calcAllocation(data.positions);
@@ -822,17 +1037,51 @@ const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200">
+      {/* TOAST */}
+      {updateStatus && (
+        <div className={`fixed top-4 right-4 z-50 border px-4 py-3 font-mono text-sm max-w-sm shadow-lg ${
+          updateStatus.ok
+            ? 'border-emerald-500 text-emerald-300 bg-emerald-950/90'
+            : 'border-red-500 text-red-300 bg-red-950/90'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div>{updateStatus.message}</div>
+              {updateStatus.errors && (
+                <div className="text-[10px] text-zinc-400 mt-1 leading-relaxed">
+                  {updateStatus.errors.slice(0, 4).map((er, i) => <div key={i}>• {er}</div>)}
+                  {updateStatus.errors.length > 4 && <div>… +{updateStatus.errors.length - 4} weitere</div>}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setUpdateStatus(null)} className="text-zinc-500 hover:text-zinc-300 shrink-0">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <header className="border-b border-zinc-800 bg-zinc-950 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <Logo />
           <div className="flex items-center gap-2">
             <button
+              onClick={handleUpdatePrices}
+              disabled={updating}
+              className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-wait text-zinc-950 font-mono text-xs px-3 py-2 transition flex items-center gap-1"
+            >
+              {updating
+                ? <Loader2 size={14} className="animate-spin" />
+                : <RefreshCw size={14} />}
+              <span className="hidden sm:inline">{updating ? 'KURSE…' : 'KURSE'}</span>
+            </button>
+            <button
               onClick={onOpenUpload}
-              className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono text-xs px-3 py-2 transition flex items-center gap-1"
+              className="border border-zinc-700 hover:border-emerald-500/60 text-zinc-300 hover:text-emerald-400 font-mono text-xs px-3 py-2 transition flex items-center gap-1"
             >
               <Plus size={14} />
-              UPDATE
+              <span className="hidden sm:inline">MANUELL</span>
             </button>
             <button
               onClick={onOpenSettings}
@@ -891,7 +1140,7 @@ const Dashboard = ({ data, onUpdate, onOpenUpload, onOpenSettings }) => {
 const OverviewTab = ({ data, total, totalChange, totalChangePct, alloc, vorsorgeTotal, targetProgress }) => {
   const [expandedHoldings, setExpandedHoldings] = useState({});
   const trendData = data.history.total.map(h => ({
-    date: h.date.slice(5),
+    date: fmtDateShort(h.date),
     value: h.wertCHF,
   }));
 
@@ -1359,7 +1608,7 @@ const SettingsModal = ({ open, onClose, data, onUpdate, apiKey, onApiKeyChange }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `portfolio-${data.meta.lastUpdate}.json`;
+    a.download = `portfolio-${fmtDate(data.meta.lastUpdate).replace(/\./g, '-')}.json`;
     a.click();
   };
 
