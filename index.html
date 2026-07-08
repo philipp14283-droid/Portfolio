@@ -177,8 +177,10 @@ const saveData = (data) => {
         if (!h || !h.ticker) return;
         const normalized = normalizeEtfTicker(h.ticker);
         if (!holdingsByNormalized[normalized]) {
-          holdingsByNormalized[normalized] = { ticker: h.ticker, wertCHF: 0, plPct: 0, count: 0 };
+          holdingsByNormalized[normalized] = { ticker: h.ticker, kurs: 0, wertCHF: 0, plPct: 0, count: 0 };
         }
+        // kurs-Baseline (für Live-Update-Skalierung) vom ersten Eintrag mit Kurs übernehmen
+        if (!holdingsByNormalized[normalized].kurs && h.kurs > 0) holdingsByNormalized[normalized].kurs = h.kurs;
         holdingsByNormalized[normalized].wertCHF += h.wertCHF || 0;
         holdingsByNormalized[normalized].plPct += h.plPct || 0;
         holdingsByNormalized[normalized].count += 1;
@@ -190,6 +192,7 @@ const saveData = (data) => {
         const dataCopy = JSON.parse(JSON.stringify(data));
         dataCopy.positions.etfDE.holdings = deduped.map(h => ({
           ticker: h.ticker,
+          kurs: h.kurs,
           wertCHF: h.wertCHF,
           plPct: h.count > 0 ? h.plPct / h.count : 0,
         }));
@@ -285,10 +288,14 @@ const PRICE_SOURCES = {
   kas:    { source: 'coingecko', ticker: 'kaspa' },      // liefert CHF direkt
   v3aaCH: { source: 'yahoo',     ticker: 'V3AA.SW' },     // CHF (Swiss)
 };
-// ETF-Holdings (in etfDE.holdings) -> Yahoo-Ticker. DEAKTIVIERT, da Yahoo europäische UCITS-ETFs nicht kennt.
-// Siehe PROJECT.md für ISIN-Codes + nächste Steps (Morningstar/Finnhub API).
-// ETF-Updates laufen aktuell manuell über Screenshot-Upload.
-const ETF_HOLDING_TICKERS = {};
+// ETF-Holdings (in etfDE.holdings) -> Yahoo-Ticker. Key = exakter holdings.ticker-Name aus den Daten.
+// Ticker via Yahoo ISIN-Suche aufgelöst (query1.finance.yahoo.com/v1/finance/search?q=<ISIN>).
+// Faktor-Skalierung: erster Live-Update setzt nur den Kurs-Baseline, danach wird der Wert anteilig nachgeführt.
+const ETF_HOLDING_TICKERS = {
+  'ISHSIV-MSCI WLD.SRI U.EOA': 'SUSW.L',  // IE00BYX2JD69 / WKN A2DVB9, London, EUR
+  'ISHSIV-SUS.M.EM.MK.SRI DL': 'SUES.L',  // IE00BYVJRP78 / WKN A2AFCZ, London, GBp (Pence!)
+  'ISHSIII-M.W.S.C.U.ETF DLA': 'WSML.L',  // IE00BF4RFH31 / WKN A2DWBY, London, USD
+};
 
 // Holt alle verfügbaren Live-Preise parallel. Gibt CHF-Preise + Fehlerliste zurück.
 // results-Form: { btc:{price,currency,source}, ..., yahoo:{ 'V3AA.SW':{price}, 'SUSW.DE':{price} } }
@@ -334,10 +341,19 @@ const fetchPrices = async () => {
         if (d.error) throw new Error(d.error);
         const price = parseFloat(d.price);
         if (!price || isNaN(price)) throw new Error('kein Preis');
-        // Währung: Yahoo gibt currency mit. EUR -> CHF, CHF bleibt.
-        const cur = (d.currency || 'EUR').toUpperCase();
-        const chf = cur === 'CHF' ? price : cur === 'EUR' ? price * fx.EUR : cur === 'USD' ? price * fx.USD : price;
-        results.yahoo[ticker] = { price: chf, currency: 'CHF', source: 'yahoo', rawCurrency: cur };
+        // Währung: Yahoo gibt currency mit. EUR/USD/GBP -> CHF, CHF bleibt.
+        // GBp/GBX = Pence (London-ETFs!) -> zuerst /100, dann * GBP-Kurs.
+        const curRaw = d.currency || 'EUR';
+        const cur = curRaw.toUpperCase();
+        const chf =
+          cur === 'CHF' ? price :
+          cur === 'EUR' ? price * fx.EUR :
+          cur === 'USD' ? price * fx.USD :
+          (curRaw === 'GBp' || cur === 'GBX') ? (price / 100) * fx.GBP :
+          cur === 'GBP' ? price * fx.GBP :
+          null; // unbekannte Währung: lieber Fehler als falscher CHF-Wert
+        if (chf == null) throw new Error(`unbekannte Währung "${curRaw}"`);
+        results.yahoo[ticker] = { price: chf, currency: 'CHF', source: 'yahoo', rawCurrency: curRaw };
       })
       .catch(e => errors.push(`${ticker} (Yahoo): ${e.message}`))
   );
